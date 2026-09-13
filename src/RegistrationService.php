@@ -29,7 +29,7 @@ final class RegistrationService
             if (!$season) {
                 throw new RuntimeException('League season not found.');
             }
-            if (!in_array($season['status'], ['registration_open', 'active'], true)) {
+            if ($season['status'] !== 'registration_open') {
                 throw new RuntimeException('This league is not accepting registrations.');
             }
 
