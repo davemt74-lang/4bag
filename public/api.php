@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use FourBag\Database;
 use FourBag\LeagueService;
+use FourBag\RegistrationService;
 
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/LeagueService.php';
+require_once __DIR__ . '/../src/RegistrationService.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -25,7 +27,9 @@ function requireOperatorKey(): void
 }
 
 try {
-    $service = new LeagueService(Database::connect());
+    $db = Database::connect();
+    $service = new LeagueService($db);
+    $registrationService = new RegistrationService($db);
     $action = (string)($_GET['action'] ?? 'dashboard');
     $method = (string)($_SERVER['REQUEST_METHOD'] ?? 'GET');
     $payload = [];
@@ -36,7 +40,7 @@ try {
 
     $protectedActions = [
         'roster', 'operations', 'venue.create', 'season.create', 'teams.build',
-        'schedule.generate', 'score.record', 'championship.create',
+        'schedule.generate', 'score.record', 'championship.create', 'order.board_paid',
     ];
     if (in_array($action, $protectedActions, true)) {
         requireOperatorKey();
@@ -56,7 +60,10 @@ try {
             ? ['id' => $service->createSeason($payload)]
             : throw new RuntimeException('POST required.'),
         'player.register' => $method === 'POST'
-            ? ['player_id' => $service->registerPlayer($payload)]
+            ? $registrationService->register($payload)
+            : throw new RuntimeException('POST required.'),
+        'order.board_paid' => $method === 'POST'
+            ? $registrationService->completeBoardOrder((int)($payload['order_id'] ?? 0))
             : throw new RuntimeException('POST required.'),
         'teams.build' => $method === 'POST'
             ? $service->buildTeams((int)($payload['season_id'] ?? 0))
