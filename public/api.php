@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use FourBag\AccessService;
+use FourBag\AdminService;
 use FourBag\AuthService;
 use FourBag\Database;
 use FourBag\LeagueService;
@@ -13,6 +14,7 @@ require_once __DIR__ . '/../src/LeagueService.php';
 require_once __DIR__ . '/../src/RegistrationService.php';
 require_once __DIR__ . '/../src/AuthService.php';
 require_once __DIR__ . '/../src/AccessService.php';
+require_once __DIR__ . '/../src/AdminService.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -115,6 +117,7 @@ function authorizeOperatorAction(string $action, array $payload, ?array $user, A
         case 'order.board_paid':
         case 'venue.member.assign':
         case 'venue.member.revoke':
+        case 'admin.venues':
             $access->requireAdmin($user);
             return;
 
@@ -150,6 +153,7 @@ try {
     $registrationService = new RegistrationService($db);
     $authService = new AuthService($db);
     $accessService = new AccessService($db);
+    $adminService = new AdminService($db);
     $sessionToken = requestSessionToken();
     $currentUser = $authService->currentUser($sessionToken);
 
@@ -164,7 +168,7 @@ try {
     $protectedActions = [
         'roster', 'operations', 'venue.create', 'season.create', 'teams.build',
         'schedule.generate', 'score.record', 'championship.create', 'order.board_paid',
-        'venue.members', 'venue.member.assign', 'venue.member.revoke',
+        'venue.members', 'venue.member.assign', 'venue.member.revoke', 'admin.venues',
     ];
     if (in_array($action, $protectedActions, true)) {
         authorizeOperatorAction($action, $payload, $currentUser, $accessService, $db);
@@ -208,6 +212,7 @@ try {
             : throw new RuntimeException('POST required.'),
         'auth.me' => ['user' => $currentUser],
 
+        'admin.venues' => $adminService->venues(),
         'venue.create' => $method === 'POST'
             ? ['id' => $service->createVenue($payload)]
             : throw new RuntimeException('POST required.'),
