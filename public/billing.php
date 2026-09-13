@@ -1,0 +1,43 @@
+<?php
+
+declare(strict_types=1);
+?><!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FourBag Venue Billing</title>
+<style>
+:root{--bg:#efe7d8;--paper:#fffaf0;--ink:#191714;--muted:#71685e;--red:#a43a2d;--green:#315844;--line:#d8ccb9;--shadow:0 12px 34px rgba(40,30,20,.1)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}.top{position:sticky;top:0;z-index:4;background:rgba(255,250,240,.94);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}.topin{max-width:1100px;margin:auto;padding:15px 20px;display:flex;justify-content:space-between;gap:14px;align-items:center}.brand{font:800 26px Georgia,serif}.brand small{display:block;font:800 9px Inter,sans-serif;text-transform:uppercase;letter-spacing:.16em;color:var(--red);margin-top:3px}.wrap{max-width:1100px;margin:auto;padding:24px 20px 60px}.card{background:var(--paper);border:1px solid var(--line);border-radius:17px;box-shadow:var(--shadow);padding:18px;margin-bottom:15px}h1,h2{font-family:Georgia,serif;margin:0 0 12px}h1{font-size:30px}h2{font-size:21px}h3{font-size:11px;text-transform:uppercase;letter-spacing:.11em;color:var(--green);margin:0 0 8px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.split{display:flex;justify-content:space-between;gap:12px;align-items:center}.btn{border:1px solid var(--line);border-radius:9px;background:#fffdf8;color:var(--ink);padding:9px 12px;font-weight:800;cursor:pointer;text-decoration:none}.btn.green{background:var(--green);border-color:var(--green);color:#fff}.btn.red{background:var(--red);border-color:var(--red);color:#fff}input,select{border:1px solid #cdbfa9;border-radius:9px;background:#fffdf8;padding:9px 10px;max-width:100%}.authInput{width:190px}.muted{color:var(--muted)}.small{font-size:12px}.badge{display:inline-block;padding:5px 8px;border-radius:999px;background:#eee2cf;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.05em}.badge.green{background:#dfe9e1;color:#214331}.badge.red{background:#f2dedb;color:#7c291f}.notice{padding:12px;border:1px solid #dbc8ab;background:#efe3cf;border-radius:10px;font-size:12px;line-height:1.5}.error{background:#f4dfdc;border-color:#dfbdb7;color:#7b291f}.ok{background:#e3ebe4;border-color:#c6d7ca;color:#214331}.empty{text-align:center;padding:26px;border:1px dashed #cdbfa9;border-radius:11px;color:var(--muted)}table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #e7ddcd;text-align:left;font-size:12px;vertical-align:middle}th{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}.table{overflow:auto}.hidden{display:none!important}@media(max-width:760px){.topin,.split{align-items:flex-start;flex-direction:column}.authInput{width:100%}.wrap{padding-left:12px;padding-right:12px}}
+</style>
+</head>
+<body>
+<header class="top"><div class="topin"><div class="brand">FOURBAG<small>Venue Billing</small></div><div class="row"><a class="btn" href="operator.php">League Operations</a><div class="row" id="authBar"><input class="authInput" id="email" type="email" placeholder="Email"><input class="authInput" id="password" type="password" placeholder="Password"><button class="btn green" id="login">Sign In</button></div></div></div></header>
+<main class="wrap">
+<div id="message" style="margin-bottom:12px"></div>
+<section id="signedOut" class="card"><h3>Venue Owner / Manager</h3><h1>Host-fee billing</h1><p class="muted">Sign in with the FourBag account assigned as an owner or manager for your venue. FourBag administrators also have access.</p></section>
+<div id="app" class="hidden">
+<section class="card"><div class="split"><div><h3>League Billing</h3><h1>Your FourBag invoices</h1><p class="small muted">Choose one of your league seasons to load the venue’s host-fee invoices.</p></div><div class="row"><select id="seasonSelect"></select><button class="btn" id="refresh">Refresh</button></div></div></section>
+<section class="card"><div class="split"><div><h3 id="venueLabel">Venue</h3><h2>Invoices</h2></div><span class="badge" id="billingStatus">—</span></div><div class="table"><table><thead><tr><th>Invoice</th><th>Season</th><th>Description</th><th>Due</th><th>Amount</th><th>Status</th><th></th></tr></thead><tbody id="invoiceBody"></tbody></table></div></section>
+<section class="notice">Host fees are FourBag network fees. Player registration, food, drink, and the $6 sponsored-beer revenue remain venue revenue under the current league model.</section>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);let currentUser=null,currentVenueId=0;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=(c,cur='USD')=>new Intl.NumberFormat(undefined,{style:'currency',currency:String(cur||'USD').toUpperCase()}).format(Number(c||0)/100);
+function tell(text,type='ok'){$('message').innerHTML=text?`<div class="notice ${type}">${esc(text)}</div>`:''}
+async function api(action,{method='GET',body=null,query={}}={}){const qs=new URLSearchParams({action,...query});const headers={'Accept':'application/json'};if(body)headers['Content-Type']='application/json';const r=await fetch(`api.php?${qs}`,{method,headers,credentials:'same-origin',body:body?JSON.stringify(body):null});const j=await r.json();if(!j.ok)throw new Error(j.error||'Request failed');return j.data}
+async function authState(){try{const d=await api('auth.me');currentUser=d.user;if(currentUser){showApp();await loadSeasons()}else showSignedOut()}catch(e){showSignedOut();tell(e.message,'error')}}
+function showSignedOut(){$('app').classList.add('hidden');$('signedOut').classList.remove('hidden')}
+function showApp(){$('app').classList.remove('hidden');$('signedOut').classList.add('hidden');$('authBar').innerHTML=`<span class="badge green">${esc(currentUser.system_role)}</span><strong>${esc(currentUser.display_name)}</strong><button class="btn" id="logout">Sign Out</button>`;$('logout').onclick=logout}
+async function login(){try{const d=await api('auth.login',{method:'POST',body:{email:$('email').value,password:$('password').value}});currentUser=d.user;showApp();tell('Signed in.');await loadSeasons()}catch(e){tell(e.message,'error')}}
+async function logout(){await api('auth.logout',{method:'POST'});location.reload()}
+async function loadSeasons(){try{const rows=await api('seasons');$('seasonSelect').innerHTML=rows.map(s=>`<option value="${Number(s.id)}">${esc(s.venue_name)} — ${esc(s.name)}</option>`).join('');if(!rows.length){$('invoiceBody').innerHTML='<tr><td colspan="7"><div class="empty">No league seasons found.</div></td></tr>';return}await loadInvoices()}catch(e){tell(e.message,'error')}}
+async function loadInvoices(){const seasonId=Number($('seasonSelect').value||0);if(!seasonId)return;try{const ops=await api('operations',{query:{season_id:seasonId}});currentVenueId=Number(ops.season.venue_id||0);$('venueLabel').textContent=ops.season.name?`${ops.season.name} • Venue ${currentVenueId}`:`Venue ${currentVenueId}`;const rows=await api('venue.invoices',{query:{venue_id:currentVenueId}});const open=rows.filter(r=>r.status==='open').length;$('billingStatus').textContent=open?`${open} open`:'Current';$('billingStatus').className=`badge ${open?'red':'green'}`;$('invoiceBody').innerHTML=rows.length?rows.map(r=>`<tr><td>#${Number(r.id)}</td><td>${esc(r.season_name||'—')}</td><td>${esc(r.description||'FourBag host fee')}</td><td>${esc(r.due_date||'—')}</td><td><strong>${money(r.amount_cents,r.currency)}</strong></td><td><span class="badge ${r.status==='paid'?'green':r.status==='open'?'red':''}">${esc(r.status)}</span></td><td>${r.status==='open'?`<button class="btn green" onclick="payInvoice(${Number(r.id)})">Pay Securely</button>`:''}</td></tr>`).join(''):'<tr><td colspan="7"><div class="empty">No host-fee invoices for this venue.</div></td></tr>';tell('')}catch(e){currentVenueId=0;$('invoiceBody').innerHTML='<tr><td colspan="7"><div class="empty">Owner or manager billing access is required for this venue.</div></td></tr>';tell(e.message,'error')}}
+async function payInvoice(invoiceId){try{tell('Opening secure checkout...');const d=await api('invoice.checkout',{method:'POST',body:{invoice_id:invoiceId}});if(!d.checkout_url)throw new Error('Checkout URL was not returned.');window.location.assign(d.checkout_url)}catch(e){tell(e.message,'error')}}
+$('login').onclick=login;$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});$('refresh').onclick=loadInvoices;$('seasonSelect').onchange=loadInvoices;authState();
+</script>
+</body>
+</html>
