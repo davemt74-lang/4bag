@@ -6,7 +6,7 @@ ALTER TABLE matches
     MODIFY away_team_id BIGINT UNSIGNED NULL,
     ADD COLUMN stage ENUM('regular','semifinal','final') NOT NULL DEFAULT 'regular' AFTER board_no,
     ADD COLUMN sequence_no SMALLINT UNSIGNED NOT NULL DEFAULT 1 AFTER stage,
-    ADD UNIQUE KEY uq_match_slot (season_id, week_no, stage, sequence_no);
+    ADD INDEX idx_match_slot (season_id, week_no, stage, sequence_no);
 
 ALTER TABLE registrations
     MODIFY payment_status ENUM('pending','awaiting_board_payment','paid','included_with_board','refunded','waived') NOT NULL DEFAULT 'pending',
