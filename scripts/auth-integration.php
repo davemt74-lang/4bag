@@ -47,6 +47,13 @@ authAssert($access->canScoreSeason($scorekeeper, $seasonId), 'Scorekeeper should
 authAssert($access->canScoreSeason($crew, $seasonId), 'FourBag crew should score network seasons.');
 authAssert(!$access->canScoreSeason($outsider, $seasonId), 'Unassigned player should not score matches.');
 
+authAssert(AccessService::allowsLegacyOperatorKey('score.record'), 'Legacy operator key should remain available for transitional league operations.');
+authAssert(AccessService::allowsLegacyOperatorKey('operations'), 'Legacy operator key should remain available for transitional venue operations.');
+authAssert(!AccessService::allowsLegacyOperatorKey('admin.venues'), 'Legacy operator key must never grant network administration access.');
+authAssert(!AccessService::allowsLegacyOperatorKey('venue.members'), 'Legacy operator key must never expose venue account membership administration.');
+authAssert(!AccessService::allowsLegacyOperatorKey('venue.member.assign'), 'Legacy operator key must never assign venue account roles.');
+authAssert(!AccessService::allowsLegacyOperatorKey('venue.member.revoke'), 'Legacy operator key must never revoke venue account roles.');
+
 $login = $auth->login($manager['email'], 'ManagerPassword!123');
 authAssert(isset($login['token']) && strlen($login['token']) === 64, 'Login should issue a 64-character session token.');
 $current = $auth->currentUser($login['token']);
