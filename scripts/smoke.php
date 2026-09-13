@@ -85,7 +85,7 @@ foreach (['assignVenueRole', 'requireAdmin', 'requireVenueManager', 'requireSeas
 }
 
 $adminService = file_get_contents(__DIR__ . '/../src/AdminService.php') ?: '';
-foreach (['class AdminService', 'function venues', 'member_count', 'season_count'] as $needle) {
+foreach (['class AdminService', 'function venues', 'active_members', 'active_seasons', 'deployed_kits'] as $needle) {
     if (!str_contains($adminService, $needle)) {
         fwrite(STDERR, "AdminService contract missing {$needle}\n");
         exit(1);
