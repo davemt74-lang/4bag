@@ -109,7 +109,7 @@ foreach (['class AdminService', 'function venues', 'active_members', 'active_sea
 }
 
 $billingService = file_get_contents(__DIR__ . '/../src/BillingService.php') ?: '';
-foreach (['createHostFeeInvoice', 'venueInvoices', 'orderIdForInvoice', 'league_host_fee', 'duplicate active host-fee invoices'] as $needle) {
+foreach (['createHostFeeInvoice', 'venueInvoices', 'orderIdForInvoice', 'league_host_fee', 'already has an active host-fee invoice'] as $needle) {
     if (!str_contains($billingService, $needle)) {
         fwrite(STDERR, "BillingService contract missing {$needle}\n");
         exit(1);
