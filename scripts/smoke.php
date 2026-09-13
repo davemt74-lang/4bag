@@ -6,12 +6,19 @@ $required = [
     __DIR__ . '/../src/Database.php',
     __DIR__ . '/../src/LeagueService.php',
     __DIR__ . '/../src/RegistrationService.php',
+    __DIR__ . '/../src/AuthService.php',
+    __DIR__ . '/../src/AccessService.php',
+    __DIR__ . '/../src/AdminService.php',
     __DIR__ . '/../database/migrations/001_initial_schema.sql',
     __DIR__ . '/../database/migrations/002_league_operations.sql',
+    __DIR__ . '/../database/migrations/003_accounts_access_control.sql',
     __DIR__ . '/../public/index.php',
     __DIR__ . '/../public/api.php',
     __DIR__ . '/../public/operator.php',
+    __DIR__ . '/../public/admin.php',
     __DIR__ . '/integration.php',
+    __DIR__ . '/auth-integration.php',
+    __DIR__ . '/create-admin.php',
 ];
 
 foreach ($required as $file) {
@@ -37,6 +44,14 @@ foreach (['board_count', 'stage', 'sequence_no', 'idx_match_slot', 'match_score_
     }
 }
 
+$authSql = file_get_contents(__DIR__ . '/../database/migrations/003_accounts_access_control.sql');
+foreach (['CREATE TABLE users', 'CREATE TABLE auth_sessions', 'CREATE TABLE venue_user_roles', 'system_role', 'scorekeeper', 'user_id'] as $needle) {
+    if ($authSql === false || !str_contains($authSql, $needle)) {
+        fwrite(STDERR, "Accounts migration missing {$needle}\n");
+        exit(1);
+    }
+}
+
 $service = file_get_contents(__DIR__ . '/../src/LeagueService.php') ?: '';
 foreach (['buildTeams', 'generateRoundRobin', 'standings', 'recordScore', 'createChampionship', 'seasonOperations'] as $method) {
     if (!str_contains($service, 'function ' . $method)) {
@@ -53,8 +68,32 @@ foreach (['function register', 'function completeBoardOrder', 'awaiting_board_pa
     }
 }
 
+$authService = file_get_contents(__DIR__ . '/../src/AuthService.php') ?: '';
+foreach (['password_hash', 'password_verify', 'random_bytes', 'token_hash', 'function currentUser', 'function logout'] as $needle) {
+    if (!str_contains($authService, $needle)) {
+        fwrite(STDERR, "AuthService contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
+$accessService = file_get_contents(__DIR__ . '/../src/AccessService.php') ?: '';
+foreach (['assignVenueRole', 'requireAdmin', 'requireVenueManager', 'requireSeasonManager', 'requireSeasonScorer', 'allowsLegacyOperatorKey', 'LEGACY_OPERATOR_ACTIONS', "['owner', 'manager']"] as $needle) {
+    if (!str_contains($accessService, $needle)) {
+        fwrite(STDERR, "AccessService contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
+$adminService = file_get_contents(__DIR__ . '/../src/AdminService.php') ?: '';
+foreach (['class AdminService', 'function venues', 'active_members', 'active_seasons', 'deployed_kits'] as $needle) {
+    if (!str_contains($adminService, $needle)) {
+        fwrite(STDERR, "AdminService contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
 $api = file_get_contents(__DIR__ . '/../public/api.php') ?: '';
-foreach (['FOURBAG_OPERATOR_KEY', 'registerPublicPlayer', 'generateFullLeagueSchedule', 'registration is closed', 'full league field', 'teams.build', 'schedule.generate', 'score.record', 'championship.create', 'order.board_paid'] as $needle) {
+foreach (['FOURBAG_OPERATOR_KEY', 'auth.register', 'auth.login', 'auth.logout', 'auth.me', 'authorizeOperatorAction', 'AccessService::allowsLegacyOperatorKey', 'seasonOperationsForActor', 'limited_access', 'requireSeasonScorer', 'admin.venues', 'venue.members', 'venue.member.assign', 'venue.member.revoke', 'samesite', 'registerPublicPlayer', 'generateFullLeagueSchedule', 'teams.build', 'schedule.generate', 'score.record', 'championship.create', 'order.board_paid'] as $needle) {
     if (!str_contains($api, $needle)) {
         fwrite(STDERR, "API contract missing {$needle}\n");
         exit(1);
@@ -63,6 +102,22 @@ foreach (['FOURBAG_OPERATOR_KEY', 'registerPublicPlayer', 'generateFullLeagueSch
 if (str_contains($api, '->registerPlayer(')) {
     fwrite(STDERR, "Public API must use RegistrationService, not the legacy LeagueService registration path.\n");
     exit(1);
+}
+
+$operator = file_get_contents(__DIR__ . '/../public/operator.php') ?: '';
+foreach (['auth.login', 'auth.logout', 'auth.me', 'credentials:\'same-origin\'', 'Legacy operator-key fallback'] as $needle) {
+    if (!str_contains($operator, $needle)) {
+        fwrite(STDERR, "Operator authentication UI contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
+$admin = file_get_contents(__DIR__ . '/../public/admin.php') ?: '';
+foreach (['admin.venues', 'venue.members', 'venue.member.assign', 'venue.member.revoke', 'auth.login', 'auth.logout', 'credentials:\'same-origin\''] as $needle) {
+    if (!str_contains($admin, $needle)) {
+        fwrite(STDERR, "Network administration UI contract missing {$needle}\n");
+        exit(1);
+    }
 }
 
 $index = file_get_contents(__DIR__ . '/../public/index.php') ?: '';
