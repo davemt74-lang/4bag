@@ -18,7 +18,6 @@ final class AccessService
         'schedule.generate',
         'score.record',
         'championship.create',
-        'order.board_paid',
     ];
 
     public function __construct(private PDO $db) {}

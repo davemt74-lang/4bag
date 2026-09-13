@@ -33,7 +33,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: pdo_mysql
+          extensions: pdo_mysql, curl
       - name: PHP lint
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Smoke checks
@@ -44,3 +44,18 @@ jobs:
         run: php scripts/integration.php
       - name: Accounts and access-control integration checks
         run: php scripts/auth-integration.php
+      - name: Payments and host-billing integration checks
+        run: php scripts/payment-integration.php
+      - name: Build production deploy ZIP
+        run: |
+          rm -f fourbag-production.zip
+          zip -r fourbag-production.zip public src database scripts README.md deploy.env.example \
+            -x '*.DS_Store' 'scripts/*integration.php' 'scripts/smoke.php'
+          unzip -t fourbag-production.zip
+      - name: Upload production deploy ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: fourbag-production-${{ github.sha }}
+          path: fourbag-production.zip
+          if-no-files-found: error
+          retention-days: 14

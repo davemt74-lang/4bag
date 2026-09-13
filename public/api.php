@@ -5,9 +5,12 @@ declare(strict_types=1);
 use FourBag\AccessService;
 use FourBag\AdminService;
 use FourBag\AuthService;
+use FourBag\BillingService;
 use FourBag\Database;
 use FourBag\LeagueService;
+use FourBag\PaymentService;
 use FourBag\RegistrationService;
+use FourBag\StripePaymentProvider;
 
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/LeagueService.php';
@@ -15,6 +18,10 @@ require_once __DIR__ . '/../src/RegistrationService.php';
 require_once __DIR__ . '/../src/AuthService.php';
 require_once __DIR__ . '/../src/AccessService.php';
 require_once __DIR__ . '/../src/AdminService.php';
+require_once __DIR__ . '/../src/BillingService.php';
+require_once __DIR__ . '/../src/PaymentProviderInterface.php';
+require_once __DIR__ . '/../src/StripePaymentProvider.php';
+require_once __DIR__ . '/../src/PaymentService.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -35,6 +42,11 @@ function hasLegacyOperatorKey(): bool
     $configured = (string)(getenv('FOURBAG_OPERATOR_KEY') ?: '');
     $provided = (string)($_SERVER['HTTP_X_FOURBAG_OPERATOR_KEY'] ?? '');
     return $configured !== '' && $provided !== '' && hash_equals($configured, $provided);
+}
+
+function manualPaymentCompletionEnabled(): bool
+{
+    return filter_var((string)(getenv('FOURBAG_ALLOW_MANUAL_PAYMENT_COMPLETION') ?: '0'), FILTER_VALIDATE_BOOLEAN);
 }
 
 function setAuthCookie(string $token, string $expiresAt): void
@@ -119,8 +131,22 @@ function seasonOperationsForActor(LeagueService $service, AccessService $access,
     return $operations;
 }
 
-function authorizeOperatorAction(string $action, array $payload, ?array $user, AccessService $access, PDO $db): void
+function completeBoardOrderManually(RegistrationService $registrationService, int $orderId): array
 {
+    if (!manualPaymentCompletionEnabled()) {
+        throw new RuntimeException('Manual payment completion is disabled. Verified payment webhooks are required.');
+    }
+    return $registrationService->completeBoardOrder($orderId);
+}
+
+function authorizeOperatorAction(
+    string $action,
+    array $payload,
+    ?array $user,
+    AccessService $access,
+    BillingService $billing,
+    PDO $db
+): void {
     if (hasLegacyOperatorKey() && AccessService::allowsLegacyOperatorKey($action)) {
         return;
     }
@@ -131,6 +157,7 @@ function authorizeOperatorAction(string $action, array $payload, ?array $user, A
         case 'venue.member.assign':
         case 'venue.member.revoke':
         case 'admin.venues':
+        case 'admin.host_fee.create':
             $access->requireAdmin($user);
             return;
 
@@ -139,7 +166,13 @@ function authorizeOperatorAction(string $action, array $payload, ?array $user, A
             return;
 
         case 'venue.members':
+        case 'venue.invoices':
             $access->requireVenueManager($user, (int)($_GET['venue_id'] ?? 0));
+            return;
+
+        case 'invoice.checkout':
+            $venueId = $billing->venueIdForInvoice((int)($payload['invoice_id'] ?? 0));
+            $access->requireVenueManager($user, $venueId);
             return;
 
         case 'roster':
@@ -170,6 +203,14 @@ try {
     $authService = new AuthService($db);
     $accessService = new AccessService($db);
     $adminService = new AdminService($db);
+    $billingService = new BillingService($db);
+    $paymentProvider = StripePaymentProvider::fromEnvironment();
+    $paymentService = new PaymentService(
+        $db,
+        $paymentProvider,
+        $registrationService,
+        PaymentService::baseUrlFromEnvironment()
+    );
     $sessionToken = requestSessionToken();
     $currentUser = $authService->currentUser($sessionToken);
 
@@ -185,9 +226,10 @@ try {
         'roster', 'operations', 'venue.create', 'season.create', 'teams.build',
         'schedule.generate', 'score.record', 'championship.create', 'order.board_paid',
         'venue.members', 'venue.member.assign', 'venue.member.revoke', 'admin.venues',
+        'admin.host_fee.create', 'venue.invoices', 'invoice.checkout',
     ];
     if (in_array($action, $protectedActions, true)) {
-        authorizeOperatorAction($action, $payload, $currentUser, $accessService, $db);
+        authorizeOperatorAction($action, $payload, $currentUser, $accessService, $billingService, $db);
     }
 
     $data = match ($action) {
@@ -229,6 +271,15 @@ try {
         'auth.me' => ['user' => $currentUser],
 
         'admin.venues' => $adminService->venues(),
+        'admin.host_fee.create' => $method === 'POST'
+            ? $billingService->createHostFeeInvoice(
+                (int)($payload['season_id'] ?? 0),
+                (int)($payload['amount_cents'] ?? 0),
+                isset($payload['due_date']) && trim((string)$payload['due_date']) !== '' ? (string)$payload['due_date'] : null,
+                isset($payload['description']) ? (string)$payload['description'] : null,
+                isset($currentUser['id']) ? (int)$currentUser['id'] : null
+            )
+            : throw new RuntimeException('POST required.'),
         'venue.create' => $method === 'POST'
             ? ['id' => $service->createVenue($payload)]
             : throw new RuntimeException('POST required.'),
@@ -236,6 +287,7 @@ try {
             ? ['id' => $service->createSeason($payload)]
             : throw new RuntimeException('POST required.'),
         'venue.members' => $accessService->venueMembers((int)($_GET['venue_id'] ?? 0)),
+        'venue.invoices' => $billingService->venueInvoices((int)($_GET['venue_id'] ?? 0)),
         'venue.member.assign' => $method === 'POST'
             ? (function () use ($authService, $accessService, $payload): array {
                 $user = $authService->userByEmail((string)($payload['email'] ?? ''));
@@ -255,8 +307,18 @@ try {
         'player.register' => $method === 'POST'
             ? registerPublicPlayer($registrationService, $db, $payload)
             : throw new RuntimeException('POST required.'),
+        'checkout.create' => $method === 'POST'
+            ? $paymentService->createCheckout(
+                (int)($payload['order_id'] ?? 0),
+                isset($payload['checkout_token']) ? (string)$payload['checkout_token'] : null,
+                false
+            )
+            : throw new RuntimeException('POST required.'),
+        'invoice.checkout' => $method === 'POST'
+            ? $paymentService->createCheckout($billingService->orderIdForInvoice((int)($payload['invoice_id'] ?? 0)), null, true)
+            : throw new RuntimeException('POST required.'),
         'order.board_paid' => $method === 'POST'
-            ? $registrationService->completeBoardOrder((int)($payload['order_id'] ?? 0))
+            ? completeBoardOrderManually($registrationService, (int)($payload['order_id'] ?? 0))
             : throw new RuntimeException('POST required.'),
         'teams.build' => $method === 'POST'
             ? $service->buildTeams((int)($payload['season_id'] ?? 0))
