@@ -44,6 +44,11 @@ function hasLegacyOperatorKey(): bool
     return $configured !== '' && $provided !== '' && hash_equals($configured, $provided);
 }
 
+function manualPaymentCompletionEnabled(): bool
+{
+    return filter_var((string)(getenv('FOURBAG_ALLOW_MANUAL_PAYMENT_COMPLETION') ?: '0'), FILTER_VALIDATE_BOOLEAN);
+}
+
 function setAuthCookie(string $token, string $expiresAt): void
 {
     $secure = !empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off';
@@ -124,6 +129,14 @@ function seasonOperationsForActor(LeagueService $service, AccessService $access,
         $operations['limited_access'] = false;
     }
     return $operations;
+}
+
+function completeBoardOrderManually(RegistrationService $registrationService, int $orderId): array
+{
+    if (!manualPaymentCompletionEnabled()) {
+        throw new RuntimeException('Manual payment completion is disabled. Verified payment webhooks are required.');
+    }
+    return $registrationService->completeBoardOrder($orderId);
 }
 
 function authorizeOperatorAction(
@@ -305,7 +318,7 @@ try {
             ? $paymentService->createCheckout($billingService->orderIdForInvoice((int)($payload['invoice_id'] ?? 0)), null, true)
             : throw new RuntimeException('POST required.'),
         'order.board_paid' => $method === 'POST'
-            ? $registrationService->completeBoardOrder((int)($payload['order_id'] ?? 0))
+            ? completeBoardOrderManually($registrationService, (int)($payload['order_id'] ?? 0))
             : throw new RuntimeException('POST required.'),
         'teams.build' => $method === 'POST'
             ? $service->buildTeams((int)($payload['season_id'] ?? 0))
