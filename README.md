@@ -11,7 +11,7 @@ The repository contains the real database-backed FourBag application foundation 
 - venue and league-season records
 - individual player registration with capacity enforcement
 - solo / friends / full-team join intent
-- FourBag board-purchase registration inclusion without duplicate board orders
+- FourBag board-purchase checkout intent with payment-safe registration credit
 - automatic team formation with requested-group preservation where capacity allows
 - 7-week round-robin schedule generation for the standard 8-team league
 - live/final score entry with score audit history
@@ -43,7 +43,8 @@ The repository contains the real database-backed FourBag application foundation 
 - Board cost assumption: $49
 - Bag cost assumption: $3 each
 - Replacement four-bag set retail: $24.99
-- A FourBag set purchase includes the purchaser's individual league registration
+- A completed FourBag set purchase includes the purchaser's individual league registration
+- Selecting the board-purchase option creates a pending $199 order; the registration remains `awaiting_board_payment` until the order is marked paid, then becomes `included_with_board`
 
 ## Local setup
 
@@ -65,7 +66,9 @@ Open `http://127.0.0.1:8080` for the public page or `http://127.0.0.1:8080/opera
 
 ## API split
 
-Public/read actions include season discovery, schedules, standings and player registration. Operator-only actions require the `X-FourBag-Operator-Key` request header and include roster access, team building, schedule generation, score entry, championship seeding, venue creation and season creation.
+Public/read actions include season discovery, schedules, standings and player registration. Operator-only actions require the `X-FourBag-Operator-Key` request header and include roster access, team building, schedule generation, score entry, championship seeding, venue creation, season creation, and the temporary `order.board_paid` completion hook.
+
+The `order.board_paid` action is an operator-protected bridge for development and manual payment confirmation. A production payment provider/webhook should replace manual completion in the payment phase.
 
 ## Next phases
 
