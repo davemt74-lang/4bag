@@ -101,12 +101,11 @@ final class RegistrationService
                     $orderStatus = (string)$order['status'];
                 }
 
-                $boardPurchase = 1;
+                $orderIsPaid = in_array($orderStatus, ['paid', 'fulfilled'], true);
+                $boardPurchase = $orderIsPaid ? 1 : 0;
                 $fee = 0;
                 $creditOrderId = $orderId;
-                $paymentStatus = in_array($orderStatus, ['paid', 'fulfilled'], true)
-                    ? 'included_with_board'
-                    : 'awaiting_board_payment';
+                $paymentStatus = $orderIsPaid ? 'included_with_board' : 'awaiting_board_payment';
             } elseif ($existing && $existing['payment_status'] === 'awaiting_board_payment' && $existing['registration_credit_order_id']) {
                 $cancel = $this->db->prepare("UPDATE orders SET status='cancelled',updated_at=NOW() WHERE id=:id AND status='pending'");
                 $cancel->execute(['id' => (int)$existing['registration_credit_order_id']]);
