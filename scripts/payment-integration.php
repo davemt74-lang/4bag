@@ -29,6 +29,7 @@ function paymentAssert(bool $condition, string $message): void
 final class FakePaymentProvider implements PaymentProviderInterface
 {
     private int $counter = 0;
+    public array $requests = [];
 
     public function name(): string
     {
@@ -37,6 +38,7 @@ final class FakePaymentProvider implements PaymentProviderInterface
 
     public function createCheckoutSession(array $request): array
     {
+        $this->requests[] = $request;
         $this->counter++;
         $sessionId = 'fake_cs_' . (int)$request['order_id'] . '_' . $this->counter;
         return [
@@ -128,6 +130,9 @@ paymentAssert($checkout['provider'] === 'fake', 'Checkout should use the configu
 paymentAssert(str_starts_with($checkout['checkout_url'], 'https://payments.example.test/'), 'Checkout should return a hosted payment URL.');
 paymentAssert($checkout['reused'] === false, 'First checkout must create a new hosted session.');
 paymentAssert((int)$db->query("SELECT COUNT(*) FROM payment_attempts WHERE order_id={$orderId} AND status='pending'")->fetchColumn() === 1, 'Checkout must persist a pending payment attempt.');
+$boardRequest = $provider->requests[array_key_last($provider->requests)];
+paymentAssert(str_ends_with((string)$boardRequest['cancel_url'], '/?checkout=cancelled#register'), 'Board checkout cancellation must return to public registration.');
+paymentAssert(!str_contains((string)$boardRequest['success_url'], 'return=billing'), 'Board checkout success must not route to venue billing.');
 
 $reusedCheckout = $payments->createCheckout($orderId, (string)$boardRegistration['checkout_token'], false);
 paymentAssert($reusedCheckout['reused'] === true, 'Repeated checkout must reuse the active hosted session.');
@@ -183,6 +188,9 @@ try {
 paymentAssert($duplicateInvoiceRejected, 'A season must not receive duplicate active host-fee invoices.');
 
 $invoiceCheckout = $payments->createCheckout((int)$invoice['order_id'], null, true);
+$hostRequest = $provider->requests[array_key_last($provider->requests)];
+paymentAssert(str_ends_with((string)$hostRequest['cancel_url'], '/billing.php?checkout=cancelled'), 'Host-fee cancellation must return to venue billing.');
+paymentAssert(str_contains((string)$hostRequest['success_url'], '&return=billing'), 'Host-fee success must preserve the venue-billing return context.');
 $invoicePayload = paidCheckoutEvent('evt_host_' . $suffix, (string)$invoiceCheckout['provider_session_id'], (int)$invoice['order_id'], 75000);
 $hostPaid = $payments->processWebhook($invoicePayload, 'test-signature');
 paymentAssert($hostPaid['status'] === 'paid', 'Verified host-fee payment must settle its order.');
