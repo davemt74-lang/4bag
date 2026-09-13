@@ -8,6 +8,12 @@ ALTER TABLE matches
     ADD COLUMN sequence_no SMALLINT UNSIGNED NOT NULL DEFAULT 1 AFTER stage,
     ADD UNIQUE KEY uq_match_slot (season_id, week_no, stage, sequence_no);
 
+ALTER TABLE registrations
+    MODIFY payment_status ENUM('pending','awaiting_board_payment','paid','included_with_board','refunded','waived') NOT NULL DEFAULT 'pending',
+    ADD COLUMN registration_credit_order_id BIGINT UNSIGNED NULL AFTER payment_status,
+    ADD INDEX idx_registration_credit_order (registration_credit_order_id),
+    ADD CONSTRAINT fk_registration_credit_order FOREIGN KEY (registration_credit_order_id) REFERENCES orders(id) ON DELETE SET NULL;
+
 CREATE TABLE match_score_events (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     match_id BIGINT UNSIGNED NOT NULL,
