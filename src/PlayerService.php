@@ -22,7 +22,9 @@ final class PlayerService
 
         $player = $this->playerForUser($userId);
         if (!$player) {
-            $legacy = $this->legacyCandidateByEmail($email);
+            // Do not disclose whether an unlinked player record exists for this email.
+            // FourBag accounts do not yet require email verification, so legacy-history
+            // discovery is intentionally restricted to the administrator queue.
             return [
                 'linked' => false,
                 'account' => $this->accountProjection($user),
@@ -31,9 +33,7 @@ final class PlayerService
                 'registrations' => [],
                 'upcoming_matches' => [],
                 'recent_results' => [],
-                'legacy_history_available' => $legacy !== null && (int)$legacy['registration_count'] > 0,
-                'legacy_registration_count' => $legacy ? (int)$legacy['registration_count'] : 0,
-                'legacy_link_policy' => $legacy ? 'admin_verification_required' : null,
+                'legacy_link_policy' => 'admin_verification_required',
             ];
         }
 
@@ -51,16 +51,15 @@ final class PlayerService
             'registrations' => $this->registrations($playerId),
             'upcoming_matches' => $this->matches($playerId, false),
             'recent_results' => $this->matches($playerId, true),
-            'legacy_history_available' => false,
-            'legacy_registration_count' => 0,
             'legacy_link_policy' => null,
         ];
     }
 
     /**
-     * Automatically links a registration only when the account already existed at the
-     * time the player's first registration was created. This prevents a newly-created
-     * account from silently claiming older league history solely by matching an email.
+     * Defense-in-depth for automatic registration linking. The API only calls this
+     * for a brand-new player record or a player already linked to the same account.
+     * This method additionally refuses a self-link if the account was created after
+     * the player's first registration.
      */
     public function linkFromRegistration(array $user, int $playerId): array
     {
@@ -199,14 +198,6 @@ final class PlayerService
         $stmt->execute(['user_id' => $userId]);
         $player = $stmt->fetch();
         return $player ?: null;
-    }
-
-    private function legacyCandidateByEmail(string $email): ?array
-    {
-        $stmt = $this->db->prepare('SELECT p.id,p.email,COUNT(r.id) registration_count,MIN(r.created_at) first_registered_at FROM players p LEFT JOIN registrations r ON r.player_id=p.id WHERE p.email=:email AND p.user_id IS NULL GROUP BY p.id LIMIT 1');
-        $stmt->execute(['email' => $email]);
-        $candidate = $stmt->fetch();
-        return $candidate ?: null;
     }
 
     private function careerStats(int $playerId): array
