@@ -5,6 +5,7 @@ declare(strict_types=1);
 use FourBag\Database;
 use FourBag\LeagueService;
 use FourBag\RegistrationService;
+use PDO;
 
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/LeagueService.php';
@@ -24,6 +25,40 @@ function requireOperatorKey(): void
     if ($provided === '' || !hash_equals($configured, $provided)) {
         throw new RuntimeException('Valid FourBag operator key required.');
     }
+}
+
+function registerPublicPlayer(RegistrationService $service, PDO $db, array $payload): array
+{
+    $seasonId = (int)($payload['season_id'] ?? 0);
+    $stmt = $db->prepare('SELECT status FROM league_seasons WHERE id=:id LIMIT 1');
+    $stmt->execute(['id' => $seasonId]);
+    $status = $stmt->fetchColumn();
+    if ($status === false) {
+        throw new RuntimeException('League season not found.');
+    }
+    if ($status !== 'registration_open') {
+        throw new RuntimeException('Public registration is closed for this league.');
+    }
+
+    return $service->register($payload);
+}
+
+function generateFullLeagueSchedule(LeagueService $service, PDO $db, int $seasonId): array
+{
+    $season = $db->prepare('SELECT team_limit FROM league_seasons WHERE id=:id LIMIT 1');
+    $season->execute(['id' => $seasonId]);
+    $teamLimit = $season->fetchColumn();
+    if ($teamLimit === false) {
+        throw new RuntimeException('League season not found.');
+    }
+
+    $teams = $db->prepare('SELECT COUNT(*) FROM teams WHERE season_id=:season_id');
+    $teams->execute(['season_id' => $seasonId]);
+    if ((int)$teams->fetchColumn() !== (int)$teamLimit) {
+        throw new RuntimeException('The standard FourBag schedule requires the full league field before league play starts.');
+    }
+
+    return $service->generateRoundRobin($seasonId);
 }
 
 try {
@@ -60,7 +95,7 @@ try {
             ? ['id' => $service->createSeason($payload)]
             : throw new RuntimeException('POST required.'),
         'player.register' => $method === 'POST'
-            ? $registrationService->register($payload)
+            ? registerPublicPlayer($registrationService, $db, $payload)
             : throw new RuntimeException('POST required.'),
         'order.board_paid' => $method === 'POST'
             ? $registrationService->completeBoardOrder((int)($payload['order_id'] ?? 0))
@@ -69,7 +104,7 @@ try {
             ? $service->buildTeams((int)($payload['season_id'] ?? 0))
             : throw new RuntimeException('POST required.'),
         'schedule.generate' => $method === 'POST'
-            ? $service->generateRoundRobin((int)($payload['season_id'] ?? 0))
+            ? generateFullLeagueSchedule($service, $db, (int)($payload['season_id'] ?? 0))
             : throw new RuntimeException('POST required.'),
         'score.record' => $method === 'POST'
             ? $service->recordScore(
