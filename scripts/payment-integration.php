@@ -78,6 +78,15 @@ function paidCheckoutEvent(string $eventId, string $sessionId, int $orderId, int
     ], JSON_UNESCAPED_SLASHES) ?: '';
 }
 
+function expiredCheckoutEvent(string $eventId, string $sessionId): string
+{
+    return json_encode([
+        'id' => $eventId,
+        'type' => 'checkout.session.expired',
+        'data' => ['object' => ['id' => $sessionId]],
+    ], JSON_UNESCAPED_SLASHES) ?: '';
+}
+
 $db = Database::connect();
 $league = new LeagueService($db);
 $registration = new RegistrationService($db);
@@ -117,7 +126,26 @@ paymentAssert($badTokenRejected, 'Incorrect checkout token must be rejected.');
 $checkout = $payments->createCheckout($orderId, (string)$boardRegistration['checkout_token'], false);
 paymentAssert($checkout['provider'] === 'fake', 'Checkout should use the configured provider.');
 paymentAssert(str_starts_with($checkout['checkout_url'], 'https://payments.example.test/'), 'Checkout should return a hosted payment URL.');
+paymentAssert($checkout['reused'] === false, 'First checkout must create a new hosted session.');
 paymentAssert((int)$db->query("SELECT COUNT(*) FROM payment_attempts WHERE order_id={$orderId} AND status='pending'")->fetchColumn() === 1, 'Checkout must persist a pending payment attempt.');
+
+$reusedCheckout = $payments->createCheckout($orderId, (string)$boardRegistration['checkout_token'], false);
+paymentAssert($reusedCheckout['reused'] === true, 'Repeated checkout must reuse the active hosted session.');
+paymentAssert($reusedCheckout['attempt_id'] === $checkout['attempt_id'], 'Repeated checkout must reuse the same payment attempt.');
+paymentAssert($reusedCheckout['provider_session_id'] === $checkout['provider_session_id'], 'Repeated checkout must not create a second payable session.');
+paymentAssert((int)$db->query("SELECT COUNT(*) FROM payment_attempts WHERE order_id={$orderId}")->fetchColumn() === 1, 'Repeated checkout must not create another payment-attempt row.');
+
+$expired = $payments->processWebhook(
+    expiredCheckoutEvent('evt_expired_' . $suffix, (string)$checkout['provider_session_id']),
+    'test-signature'
+);
+paymentAssert($expired['status'] === 'expired', 'Checkout expiration must be processed.');
+paymentAssert((string)$db->query("SELECT status FROM payment_attempts WHERE id=" . (int)$checkout['attempt_id'])->fetchColumn() === 'cancelled', 'Expired checkout must cancel its payment attempt.');
+
+$checkout = $payments->createCheckout($orderId, (string)$boardRegistration['checkout_token'], false);
+paymentAssert($checkout['reused'] === false, 'Checkout after expiration must create a fresh hosted session.');
+paymentAssert($checkout['provider_session_id'] !== $reusedCheckout['provider_session_id'], 'Replacement checkout must receive a new provider session.');
+paymentAssert((int)$db->query("SELECT COUNT(*) FROM payment_attempts WHERE order_id={$orderId} AND status='pending'")->fetchColumn() === 1, 'Only one payment attempt may remain pending after expiration recovery.');
 
 $eventPayload = paidCheckoutEvent('evt_board_' . $suffix, (string)$checkout['provider_session_id'], $orderId, 19900);
 $paid = $payments->processWebhook($eventPayload, 'test-signature');
@@ -126,6 +154,7 @@ paymentAssert((string)$db->query("SELECT status FROM orders WHERE id={$orderId}"
 paymentAssert((string)$db->query("SELECT payment_status FROM registrations WHERE season_id={$seasonId} LIMIT 1")->fetchColumn() === 'included_with_board', 'Paid board checkout must activate included league registration.');
 paymentAssert((int)$db->query("SELECT board_purchase FROM registrations WHERE season_id={$seasonId} LIMIT 1")->fetchColumn() === 1, 'Paid board checkout must mark board purchase complete.');
 paymentAssert($db->query("SELECT checkout_token_hash FROM orders WHERE id={$orderId}")->fetchColumn() === null, 'Paid order must clear its checkout token hash.');
+paymentAssert((int)$db->query("SELECT COUNT(*) FROM payment_attempts WHERE order_id={$orderId} AND status='pending'")->fetchColumn() === 0, 'Settled order must not retain pending payment attempts.');
 
 $duplicate = $payments->processWebhook($eventPayload, 'test-signature');
 paymentAssert($duplicate['status'] === 'duplicate', 'Repeated provider event must be idempotent.');
