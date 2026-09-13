@@ -26,15 +26,18 @@ foreach ($files as $file) {
         throw new RuntimeException("Unable to read {$name}");
     }
 
-    $db->beginTransaction();
-    try {
-        $db->exec($sql);
-        $insert = $db->prepare('INSERT INTO schema_migrations (migration, applied_at) VALUES (:migration, NOW())');
-        $insert->execute(['migration' => $name]);
-        $db->commit();
-        echo "applied {$name}\n";
-    } catch (Throwable $e) {
-        $db->rollBack();
-        throw $e;
+    // MySQL/MariaDB DDL statements implicitly commit, so migrations are applied
+    // statement-by-statement and are only recorded after every statement succeeds.
+    $statements = preg_split('/;\s*(?:\r?\n|$)/', trim($sql)) ?: [];
+    foreach ($statements as $statement) {
+        $statement = trim($statement);
+        if ($statement === '') {
+            continue;
+        }
+        $db->exec($statement);
     }
+
+    $insert = $db->prepare('INSERT INTO schema_migrations (migration, applied_at) VALUES (:migration, NOW())');
+    $insert->execute(['migration' => $name]);
+    echo "applied {$name}\n";
 }

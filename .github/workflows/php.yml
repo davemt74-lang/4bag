@@ -2,18 +2,43 @@ name: FourBag CI
 
 on:
   push:
-    branches: [main, phase-1-core-league-platform]
+    branches: [main, 'phase-*']
   pull_request:
 
 jobs:
   php:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: fourbag_test
+          MYSQL_USER: fourbag
+          MYSQL_PASSWORD: fourbag
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      FOURBAG_DB_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=fourbag_test;charset=utf8mb4'
+      FOURBAG_DB_USER: fourbag
+      FOURBAG_DB_PASSWORD: fourbag
+      FOURBAG_OPERATOR_KEY: ci-operator-key
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
+          extensions: pdo_mysql
       - name: PHP lint
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Smoke checks
         run: php scripts/smoke.php
+      - name: Apply database migrations
+        run: php scripts/migrate.php
+      - name: League operations integration checks
+        run: php scripts/integration.php
