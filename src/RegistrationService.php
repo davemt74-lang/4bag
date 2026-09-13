@@ -39,7 +39,7 @@ final class RegistrationService
             $findPlayer->execute(['email' => $email]);
             $playerId = (int)$findPlayer->fetchColumn();
 
-            $existingStmt = $this->db->prepare('SELECT id,board_purchase,payment_status,registration_credit_order_id FROM registrations WHERE season_id=:season_id AND player_id=:player_id LIMIT 1');
+            $existingStmt = $this->db->prepare('SELECT id,board_purchase,registration_fee_cents,payment_status,registration_credit_order_id FROM registrations WHERE season_id=:season_id AND player_id=:player_id LIMIT 1 FOR UPDATE');
             $existingStmt->execute(['season_id' => $seasonId, 'player_id' => $playerId]);
             $existing = $existingStmt->fetch();
 
@@ -65,13 +65,31 @@ final class RegistrationService
             $creditOrderId = null;
             $orderId = null;
 
-            if ($existing && $existing['payment_status'] === 'included_with_board') {
-                $boardPurchase = 1;
-                $fee = 0;
-                $paymentStatus = 'included_with_board';
-                $creditOrderId = $existing['registration_credit_order_id'] ? (int)$existing['registration_credit_order_id'] : null;
-                $orderId = $creditOrderId;
-            } elseif ($boardRequested) {
+            if ($existing) {
+                $priorStatus = (string)$existing['payment_status'];
+                if ($priorStatus === 'included_with_board') {
+                    $boardPurchase = 1;
+                    $fee = 0;
+                    $paymentStatus = 'included_with_board';
+                    $creditOrderId = $existing['registration_credit_order_id'] ? (int)$existing['registration_credit_order_id'] : null;
+                    $orderId = $creditOrderId;
+                    $boardRequested = false;
+                } elseif (in_array($priorStatus, ['paid', 'waived'], true)) {
+                    if ($boardRequested && !(bool)$existing['board_purchase']) {
+                        throw new RuntimeException('A paid or waived league registration cannot be converted to a board-purchase credit. Buy the board separately.');
+                    }
+                    $boardPurchase = (int)$existing['board_purchase'];
+                    $fee = (int)$existing['registration_fee_cents'];
+                    $paymentStatus = $priorStatus;
+                    $creditOrderId = $existing['registration_credit_order_id'] ? (int)$existing['registration_credit_order_id'] : null;
+                    $orderId = $creditOrderId;
+                    $boardRequested = false;
+                } elseif ($priorStatus === 'refunded') {
+                    throw new RuntimeException('Refunded registrations must be reactivated by an operator.');
+                }
+            }
+
+            if ($boardRequested) {
                 $order = $this->findBoardOrder($playerId, $seasonId);
                 if (!$order) {
                     $createOrder = $this->db->prepare("INSERT INTO orders(player_id,season_id,order_type,subtotal_cents,status,created_at,updated_at) VALUES(:player_id,:season_id,'fourbag_set',19900,'pending',NOW(),NOW())");
@@ -92,6 +110,11 @@ final class RegistrationService
             } elseif ($existing && $existing['payment_status'] === 'awaiting_board_payment' && $existing['registration_credit_order_id']) {
                 $cancel = $this->db->prepare("UPDATE orders SET status='cancelled',updated_at=NOW() WHERE id=:id AND status='pending'");
                 $cancel->execute(['id' => (int)$existing['registration_credit_order_id']]);
+                $boardPurchase = 0;
+                $fee = (int)$season['registration_fee_cents'];
+                $paymentStatus = 'pending';
+                $creditOrderId = null;
+                $orderId = null;
             }
 
             $registration = $this->db->prepare("INSERT INTO registrations(season_id,player_id,join_type,requested_group,board_purchase,registration_fee_cents,payment_status,registration_credit_order_id,created_at,updated_at) VALUES(:season_id,:player_id,:join_type,:requested_group,:board_purchase,:fee,:payment_status,:credit_order_id,NOW(),NOW()) ON DUPLICATE KEY UPDATE join_type=VALUES(join_type),requested_group=VALUES(requested_group),board_purchase=VALUES(board_purchase),registration_fee_cents=VALUES(registration_fee_cents),payment_status=VALUES(payment_status),registration_credit_order_id=VALUES(registration_credit_order_id),updated_at=NOW()");
@@ -142,23 +165,38 @@ final class RegistrationService
                 throw new RuntimeException('Board order is not linked to a player and season.');
             }
 
-            $this->db->prepare("UPDATE orders SET status='paid',updated_at=NOW() WHERE id=:id")->execute(['id' => $orderId]);
-            $update = $this->db->prepare("UPDATE registrations SET board_purchase=1,registration_fee_cents=0,payment_status='included_with_board',registration_credit_order_id=:order_id,updated_at=NOW() WHERE player_id=:player_id AND season_id=:season_id");
-            $update->execute([
-                'order_id' => $orderId,
+            $registrationStmt = $this->db->prepare('SELECT id,registration_credit_order_id,payment_status FROM registrations WHERE player_id=:player_id AND season_id=:season_id FOR UPDATE');
+            $registrationStmt->execute([
                 'player_id' => (int)$order['player_id'],
                 'season_id' => (int)$order['season_id'],
             ]);
-            if ($update->rowCount() !== 1) {
+            $registration = $registrationStmt->fetch();
+            if (!$registration) {
                 throw new RuntimeException('Matching league registration was not found for this board order.');
             }
+            if ((int)($registration['registration_credit_order_id'] ?? 0) !== $orderId) {
+                throw new RuntimeException('This board order is not assigned as the registration credit source.');
+            }
+
+            if ($order['status'] === 'pending') {
+                $this->db->prepare("UPDATE orders SET status='paid',updated_at=NOW() WHERE id=:id")->execute(['id' => $orderId]);
+                $orderStatus = 'paid';
+            } else {
+                $orderStatus = (string)$order['status'];
+            }
+
+            $update = $this->db->prepare("UPDATE registrations SET board_purchase=1,registration_fee_cents=0,payment_status='included_with_board',registration_credit_order_id=:order_id,updated_at=NOW() WHERE id=:registration_id");
+            $update->execute([
+                'order_id' => $orderId,
+                'registration_id' => (int)$registration['id'],
+            ]);
 
             $this->db->commit();
             return [
                 'order_id' => $orderId,
                 'player_id' => (int)$order['player_id'],
                 'season_id' => (int)$order['season_id'],
-                'order_status' => 'paid',
+                'order_status' => $orderStatus,
                 'registration_status' => 'included_with_board',
             ];
         } catch (Throwable $e) {
