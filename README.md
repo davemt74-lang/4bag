@@ -4,13 +4,19 @@ FourBag is a backyard family game and scalable league network for bars, brewerie
 
 ## Current platform
 
-The repository contains a real PHP/MySQL FourBag application with league operations, account-based venue access, FourBag product checkout, and host-fee billing:
+The repository contains a real PHP/MySQL FourBag application with league operations, player accounts/history, account-based venue access, FourBag product checkout, and host-fee billing:
 
 - PHP 8.2 application
 - MySQL/MariaDB schema + ordered migration runner
 - venue and league-season records
 - individual player registration with capacity enforcement
 - solo / friends / full-team join intent
+- player account portal at `public/player.php`
+- linked league/team history, career record, upcoming matches, recent results, championships, and FourBag-set count
+- secure automatic account-to-player linking for new registrations made while signed in with the same email
+- conservative legacy-history policy: pre-existing unlinked player history requires FourBag administrator identity verification
+- normal player accounts do not disclose whether matching unlinked legacy history exists
+- administrator legacy-history queue/linker at `public/player-admin.php`
 - automatic team formation with requested-group preservation where capacity allows
 - 7-week round-robin schedule generation for the standard 8-team league
 - live/final score entry with score audit history
@@ -40,7 +46,7 @@ The repository contains a real PHP/MySQL FourBag application with league operati
 - FourBag Live broadcast records + audience metrics
 - public player-facing league page
 - JSON API with public and role-protected actions
-- GitHub Actions lint, smoke, migration, league, access-control, and payment/billing integration gates
+- GitHub Actions lint, smoke, migration, league, access-control, payment/billing, and player-history integration gates
 
 ## League contract represented
 
@@ -61,6 +67,16 @@ The repository contains a real PHP/MySQL FourBag application with league operati
 - A completed FourBag set purchase includes the purchaser's individual league registration
 
 Direct $50 league registration is currently represented as venue revenue and remains `pending` until handled by the venue. FourBag does not currently route that $50 through the FourBag Stripe account. This preserves the operating model in which the host venue owns player-registration revenue. A future connected-account/payment-routing phase can automate venue-collected registration payments without changing that business rule.
+
+## Player accounts and history
+
+Players can create or sign into a FourBag account at `public/player.php`. A linked account can see its league registrations, teams, venues, career W/L/T record, upcoming matches, recent results, championships, and completed FourBag-set purchases.
+
+For **new** player records, a signed-in account using the same email can be linked automatically when the league registration is created. The API checks whether a player record already existed before registration; a pre-existing unlinked record is not automatically claimed simply because a newly created account uses the same email.
+
+This is intentionally conservative because account email verification has not yet been added. If player history predates the account, FourBag requires administrator identity verification before linking. The administrator queue at `public/player-admin.php` lists unlinked player records and any exact-email account candidate; the administrator must verify identity outside that screen before choosing **Link Verified History**.
+
+Normal player accounts receive only a generic unlinked state. They are not told whether an unlinked player record exists for their email, how many prior registrations may exist, or any details from that history. This prevents the player account surface from becoming an account/history-enumeration channel.
 
 ## Payment flow
 
@@ -121,9 +137,11 @@ php -S 127.0.0.1:8080 -t public
 Useful pages:
 
 - `/` — public league discovery, registration, and FourBag set checkout
+- `/player.php` — player account, career stats, league/team history, schedule, and results
 - `/operator.php` — venue league operations
 - `/billing.php` — venue owner/manager host-fee invoices and payment
 - `/admin.php` — FourBag network account/venue administration
+- `/player-admin.php` — administrator queue for verified legacy player-history linking
 - `/host-fees.php` — FourBag administrator host-fee creation and invoice review
 - `/checkout-complete.php` — payment confirmation landing page
 - `/webhook-stripe.php` — Stripe webhook endpoint
@@ -159,13 +177,13 @@ Passwords use PHP `password_hash()` / `password_verify()`. Login creates a crypt
 
 Roles:
 
-- `admin` — FourBag network administration, host-fee issuance, and all venue access
+- `admin` — FourBag network administration, verified legacy-history linking, host-fee issuance, and all venue access
 - `crew` — network-wide scoring access for FourBag production/official crews
 - venue `owner` / `manager` — manage the assigned venue, its seasons, and venue invoices
 - venue `scorekeeper` — score access for the assigned venue, without roster/billing management
-- `user` — normal account without operator privileges
+- `user` — normal player/account role without operator privileges
 
-`FOURBAG_OPERATOR_KEY` remains only as a temporary compatibility bridge for selected legacy league-operation actions. It cannot administer accounts, venue roles, host-fee invoices, or billing.
+`FOURBAG_OPERATOR_KEY` remains only as a temporary compatibility bridge for selected legacy league-operation actions. It cannot administer accounts, player-history links, venue roles, host-fee invoices, or billing.
 
 `order.board_paid` is no longer available through the legacy key. It is admin-only and additionally disabled unless `FOURBAG_ALLOW_MANUAL_PAYMENT_COMPLETION=1`. Production should leave that flag off and use verified payment webhooks as the authority.
 
@@ -182,9 +200,10 @@ The GitHub Actions workflow validates:
 - board-order payment activation
 - duplicate/idempotent webhook behavior
 - host-fee invoice creation and payment
+- player-account linking, privacy policy, career stats, schedule/results history, and verified legacy-history administration
 
 The workflow also builds a deployable production ZIP after all validation gates pass.
 
 ## Next phases
 
-The strongest next product phases are player profiles and registration-history linking, venue onboarding/invitations, connected-account routing for venue-collected registration payments, sponsor/advertiser self-service, equipment logistics, crew scheduling, and production-grade FourBag Live broadcast integrations.
+The strongest next phase is email verification + account recovery/password reset, which can make player identity and future history-claim flows stronger. After that: venue onboarding/invitations, connected-account routing for venue-collected registration payments, sponsor/advertiser self-service, equipment logistics, crew scheduling, and production-grade FourBag Live broadcast integrations.
