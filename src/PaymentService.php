@@ -79,15 +79,25 @@ final class PaymentService
         ]);
         $attemptId = (int)$this->db->lastInsertId();
 
+        $orderType = (string)$order['order_type'];
+        $isHostFee = $orderType === 'league_host_fee';
+        $successUrl = $this->baseUrl
+            . '/checkout-complete.php?order_id=' . $orderId
+            . '&session_id={CHECKOUT_SESSION_ID}'
+            . ($isHostFee ? '&return=billing' : '');
+        $cancelUrl = $isHostFee
+            ? $this->baseUrl . '/billing.php?checkout=cancelled'
+            : $this->baseUrl . '/?checkout=cancelled#register';
+
         try {
             $checkout = $this->provider->createCheckoutSession([
                 'order_id' => $orderId,
-                'order_type' => (string)$order['order_type'],
+                'order_type' => $orderType,
                 'amount_cents' => (int)$order['subtotal_cents'],
                 'currency' => strtoupper((string)$order['currency']),
-                'description' => $this->orderDescription((string)$order['order_type']),
-                'success_url' => $this->baseUrl . '/checkout-complete.php?order_id=' . $orderId . '&session_id={CHECKOUT_SESSION_ID}',
-                'cancel_url' => $this->baseUrl . '/?checkout=cancelled#register',
+                'description' => $this->orderDescription($orderType),
+                'success_url' => $successUrl,
+                'cancel_url' => $cancelUrl,
                 'idempotency_key' => $idempotencyKey,
             ]);
 
