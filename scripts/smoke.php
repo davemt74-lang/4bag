@@ -10,6 +10,7 @@ $required = [
     __DIR__ . '/../src/AccessService.php',
     __DIR__ . '/../src/AdminService.php',
     __DIR__ . '/../src/BillingService.php',
+    __DIR__ . '/../src/PlayerService.php',
     __DIR__ . '/../src/PaymentProviderInterface.php',
     __DIR__ . '/../src/StripePaymentProvider.php',
     __DIR__ . '/../src/PaymentService.php',
@@ -19,6 +20,8 @@ $required = [
     __DIR__ . '/../database/migrations/004_payments_host_billing.sql',
     __DIR__ . '/../public/index.php',
     __DIR__ . '/../public/api.php',
+    __DIR__ . '/../public/player.php',
+    __DIR__ . '/../public/player-admin.php',
     __DIR__ . '/../public/operator.php',
     __DIR__ . '/../public/admin.php',
     __DIR__ . '/../public/billing.php',
@@ -28,6 +31,7 @@ $required = [
     __DIR__ . '/integration.php',
     __DIR__ . '/auth-integration.php',
     __DIR__ . '/payment-integration.php',
+    __DIR__ . '/player-integration.php',
     __DIR__ . '/create-admin.php',
 ];
 
@@ -94,6 +98,14 @@ foreach (['password_hash', 'password_verify', 'random_bytes', 'token_hash', 'fun
     }
 }
 
+$playerService = file_get_contents(__DIR__ . '/../src/PlayerService.php') ?: '';
+foreach (['profileForUser', 'linkFromRegistration', 'adminLinkByEmail', 'unlinkedPlayers', 'historical_verification_required', 'account_preexisting', 'championships', 'upcoming_matches', 'recent_results'] as $needle) {
+    if (!str_contains($playerService, $needle)) {
+        fwrite(STDERR, "PlayerService contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
 $accessService = file_get_contents(__DIR__ . '/../src/AccessService.php') ?: '';
 foreach (['assignVenueRole', 'requireAdmin', 'requireVenueManager', 'requireSeasonManager', 'requireSeasonScorer', 'allowsLegacyOperatorKey', 'LEGACY_OPERATOR_ACTIONS', "['owner', 'manager']"] as $needle) {
     if (!str_contains($accessService, $needle)) {
@@ -135,7 +147,7 @@ foreach (['createCheckout', 'processWebhook', 'payment_attempts', 'payment_event
 }
 
 $api = file_get_contents(__DIR__ . '/../public/api.php') ?: '';
-foreach (['FOURBAG_OPERATOR_KEY', 'auth.register', 'auth.login', 'auth.logout', 'auth.me', 'authorizeOperatorAction', 'AccessService::allowsLegacyOperatorKey', 'seasonOperationsForActor', 'limited_access', 'requireSeasonScorer', 'admin.venues', 'admin.host_fee.create', 'venue.invoices', 'invoice.checkout', 'checkout.create', 'venue.members', 'venue.member.assign', 'venue.member.revoke', 'samesite', 'registerPublicPlayer', 'generateFullLeagueSchedule', 'teams.build', 'schedule.generate', 'score.record', 'championship.create', 'order.board_paid'] as $needle) {
+foreach (['FOURBAG_OPERATOR_KEY', 'auth.register', 'auth.login', 'auth.logout', 'auth.me', 'player.profile', 'admin.players.unlinked', 'admin.player.link', 'linkFromRegistration', 'authorizeOperatorAction', 'AccessService::allowsLegacyOperatorKey', 'seasonOperationsForActor', 'limited_access', 'requireSeasonScorer', 'admin.venues', 'admin.host_fee.create', 'venue.invoices', 'invoice.checkout', 'checkout.create', 'venue.members', 'venue.member.assign', 'venue.member.revoke', 'samesite', 'registerPublicPlayer', 'generateFullLeagueSchedule', 'teams.build', 'schedule.generate', 'score.record', 'championship.create', 'order.board_paid'] as $needle) {
     if (!str_contains($api, $needle)) {
         fwrite(STDERR, "API contract missing {$needle}\n");
         exit(1);
@@ -170,6 +182,22 @@ foreach (['admin.venues', 'venue.members', 'venue.member.assign', 'venue.member.
     }
 }
 
+$player = file_get_contents(__DIR__ . '/../public/player.php') ?: '';
+foreach (['player.profile', 'Create Player Account', 'League History', 'Upcoming Matches', 'legacy_history_available', 'admin'] as $needle) {
+    if (!str_contains($player, $needle)) {
+        fwrite(STDERR, "Player account UI contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
+$playerAdmin = file_get_contents(__DIR__ . '/../public/player-admin.php') ?: '';
+foreach (['admin.players.unlinked', 'admin.player.link', 'Link Verified History', 'Administrator access required', 'credentials:\'same-origin\''] as $needle) {
+    if (!str_contains($playerAdmin, $needle)) {
+        fwrite(STDERR, "Player history administration UI contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
 $billing = file_get_contents(__DIR__ . '/../public/billing.php') ?: '';
 foreach (['venue.invoices', 'invoice.checkout', 'Pay Securely', 'Host-fee billing', 'credentials:\'same-origin\''] as $needle) {
     if (!str_contains($billing, $needle)) {
@@ -187,9 +215,9 @@ foreach (['admin.host_fee.create', 'venue.invoices', 'Create Host-Fee Invoice', 
 }
 
 $index = file_get_contents(__DIR__ . '/../public/index.php') ?: '';
-foreach (['escapeHtml', 'awaiting_board_payment', 'checkout.create', 'checkout_token', 'window.location.assign', 'verified payment'] as $needle) {
+foreach (['escapeHtml', 'awaiting_board_payment', 'checkout.create', 'checkout_token', 'window.location.assign', 'verified payment', 'player.php', 'profile_link'] as $needle) {
     if (!str_contains($index, $needle)) {
-        fwrite(STDERR, "Public checkout UI contract missing {$needle}\n");
+        fwrite(STDERR, "Public registration UI contract missing {$needle}\n");
         exit(1);
     }
 }
