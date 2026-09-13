@@ -11,14 +11,43 @@
 <main>
 <section class="hero"><div><span class="eyebrow">BACKYARD GAME • LOCAL LEAGUES • FOURBAG LIVE</span><h1>Play local.<br>Take the game home.</h1><p>Find an official 8-week FourBag league, register solo or with friends, and follow standings across the network.</p><div class="actions"><a class="btn primary" href="#leagues">Find a League</a><a class="btn" href="#product">Buy FourBag — $199</a></div></div><div class="hero-card"><div class="big">32</div><span>players per venue</span><div class="big">8</div><span>weeks per season</span><div class="big">4</div><span>official boards</span></div></section>
 <section class="section" id="leagues"><div class="section-head"><div><span class="eyebrow">NETWORK</span><h2>Open FourBag Leagues</h2></div><button class="btn" id="refresh">Refresh</button></div><div id="leagueGrid" class="grid"><div class="card muted">Connect the database and create a venue/season to populate live leagues.</div></div></section>
-<section class="section two" id="register"><div class="card"><span class="eyebrow">PLAYER REGISTRATION</span><h2>Join a league</h2><form id="registerForm"><label>Season<select name="season_id" id="seasonSelect" required></select></label><label>Name<input name="name" required></label><label>Email<input name="email" type="email" required></label><label>How are you joining?<select name="join_type"><option value="solo">Place me on a team</option><option value="friends">Joining with friends</option><option value="team">I have a full team</option></select></label><label>Team / friend group<input name="requested_group"></label><label class="check"><input name="board_purchase" type="checkbox" value="1"> Buy a FourBag set for $199 and include league registration after payment</label><button class="btn primary" type="submit">Continue</button><div id="registerResult" class="result"></div></form></div><div class="card" id="product"><span class="eyebrow">FOURBAG SET</span><div class="price">$199</div><h2>Board + four bags</h2><p>FourBag is a backyard family game first. A completed set purchase includes the purchaser's league registration at participating venues.</p><ul><li>1 official FourBag board</li><li>4 bags</li><li>League registration included after board payment</li><li>Replacement 4-bag sets: $24.99</li></ul></div></section>
+<section class="section two" id="register"><div class="card"><span class="eyebrow">PLAYER REGISTRATION</span><h2>Join a league</h2><form id="registerForm"><label>Season<select name="season_id" id="seasonSelect" required></select></label><label>Name<input name="name" required></label><label>Email<input name="email" type="email" required></label><label>How are you joining?<select name="join_type"><option value="solo">Place me on a team</option><option value="friends">Joining with friends</option><option value="team">I have a full team</option></select></label><label>Team / friend group<input name="requested_group"></label><label class="check"><input name="board_purchase" type="checkbox" value="1"> Buy a FourBag set for $199 and include league registration after payment</label><button class="btn primary" type="submit">Continue</button><div id="registerResult" class="result"></div></form></div><div class="card" id="product"><span class="eyebrow">FOURBAG SET</span><div class="price">$199</div><h2>Board + four bags</h2><p>FourBag is a backyard family game first. A completed set purchase includes the purchaser's league registration at participating venues.</p><ul><li>1 official FourBag board</li><li>4 bags</li><li>Secure hosted checkout</li><li>League registration included only after verified payment</li><li>Replacement 4-bag sets: $24.99</li></ul></div></section>
 </main>
 <script>
 const leagueGrid=document.getElementById('leagueGrid'),seasonSelect=document.getElementById('seasonSelect'),result=document.getElementById('registerResult');
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function api(action,options={}){const res=await fetch(`api.php?action=${encodeURIComponent(action)}`,options),body=await res.json();if(!body.ok)throw new Error(body.error||'Request failed');return body.data}
-async function loadSeasons(){try{const seasons=await api('seasons');seasonSelect.innerHTML=seasons.map(s=>`<option value="${Number(s.id)}">${escapeHtml(s.venue_name)} — ${escapeHtml(s.name)}</option>`).join('');leagueGrid.innerHTML=seasons.length?seasons.map(s=>`<article class="card"><span class="pill">${escapeHtml(String(s.status).replaceAll('_',' '))}</span><h3>${escapeHtml(s.venue_name)}</h3><p>${escapeHtml(s.name)}</p><div class="meta">${escapeHtml(s.city||'')}${s.state?', '+escapeHtml(s.state):''} • ${Number(s.weeks)} weeks</div><div class="fill"><strong>${Number(s.registered_players)}/${Number(s.team_limit)*Number(s.players_per_team)}</strong> players</div><div class="meta">${Number(s.board_buyers||0)} FourBag purchasers</div></article>`).join(''):'<div class="card muted">No open seasons yet.</div>'}catch(e){leagueGrid.innerHTML=`<div class="card error">${escapeHtml(e.message)}</div>`;seasonSelect.innerHTML=''}}
-document.getElementById('refresh').addEventListener('click',loadSeasons);document.getElementById('registerForm').addEventListener('submit',async e=>{e.preventDefault();result.textContent='Saving...';const form=new FormData(e.currentTarget),payload=Object.fromEntries(form.entries());payload.board_purchase=form.get('board_purchase')==='1';try{const data=await api('player.register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(data.payment_status==='awaiting_board_payment'){result.textContent=`FourBag order #${data.board_order_id} created for $199. Your league registration becomes included after the board order is paid.`}else if(data.payment_status==='included_with_board'){result.textContent='Your paid FourBag purchase includes this league registration.'}else if(data.payment_status==='paid'||data.payment_status==='waived'){result.textContent='Your league registration is confirmed.'}else{result.textContent='Registration created. The $50 league registration payment is still pending.'}e.currentTarget.reset();await loadSeasons()}catch(err){result.textContent=err.message}});loadSeasons();
+async function loadSeasons(){try{const seasons=await api('seasons');seasonSelect.innerHTML=seasons.map(s=>`<option value="${Number(s.id)}">${escapeHtml(s.venue_name)} — ${escapeHtml(s.name)}</option>`).join('');leagueGrid.innerHTML=seasons.length?seasons.map(s=>`<article class="card"><span class="pill">${escapeHtml(String(s.status).replaceAll('_',' '))}</span><h3>${escapeHtml(s.venue_name)}</h3><p>${escapeHtml(s.name)}</p><div class="meta">${escapeHtml(s.city||'')}${s.state?', '+escapeHtml(s.state):''} • ${Number(s.weeks)} weeks</div><div class="fill"><strong>${Number(s.registered_players)}/${Number(s.team_limit)*Number(s.players_per_team)}</strong> players</div><div class="meta">${Number(s.board_buyers||0)} paid FourBag purchasers</div></article>`).join(''):'<div class="card muted">No open seasons yet.</div>'}catch(e){leagueGrid.innerHTML=`<div class="card error">${escapeHtml(e.message)}</div>`;seasonSelect.innerHTML=''}}
+document.getElementById('refresh').addEventListener('click',loadSeasons);
+document.getElementById('registerForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  result.textContent='Saving...';
+  const form=new FormData(e.currentTarget),payload=Object.fromEntries(form.entries());
+  payload.board_purchase=form.get('board_purchase')==='1';
+  try{
+    const data=await api('player.register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(data.payment_status==='awaiting_board_payment'){
+      result.textContent=`FourBag order #${data.board_order_id} created. Opening secure checkout...`;
+      try{
+        const checkout=await api('checkout.create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:data.board_order_id,checkout_token:data.checkout_token})});
+        if(!checkout.checkout_url)throw new Error('Checkout URL was not returned.');
+        window.location.assign(checkout.checkout_url);
+        return;
+      }catch(paymentError){
+        result.textContent=`FourBag order #${data.board_order_id} is saved, but checkout could not start: ${paymentError.message}`;
+      }
+    }else if(data.payment_status==='included_with_board'){
+      result.textContent='Your paid FourBag purchase includes this league registration.';
+    }else if(data.payment_status==='paid'||data.payment_status==='waived'){
+      result.textContent='Your league registration is confirmed.';
+    }else{
+      result.textContent='Registration created. The league registration payment is still pending.';
+    }
+    e.currentTarget.reset();
+    await loadSeasons();
+  }catch(err){result.textContent=err.message}
+});
+loadSeasons();
 </script>
 </body>
 </html>
