@@ -5,7 +5,6 @@ declare(strict_types=1);
 use FourBag\Database;
 use FourBag\LeagueService;
 use FourBag\RegistrationService;
-use PDO;
 
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/LeagueService.php';
