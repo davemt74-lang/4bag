@@ -42,3 +42,5 @@ jobs:
         run: php scripts/migrate.php
       - name: League operations integration checks
         run: php scripts/integration.php
+      - name: Accounts and access-control integration checks
+        run: php scripts/auth-integration.php
