@@ -106,6 +106,19 @@ function seasonIdForMatch(PDO $db, int $matchId): int
     return (int)$seasonId;
 }
 
+function seasonOperationsForActor(LeagueService $service, AccessService $access, int $seasonId, ?array $user): array
+{
+    $operations = $service->seasonOperations($seasonId);
+    if ($user !== null && !$access->canManageSeason($user, $seasonId)) {
+        $operations['roster'] = [];
+        $operations['board_buyers'] = null;
+        $operations['limited_access'] = true;
+    } else {
+        $operations['limited_access'] = false;
+    }
+    return $operations;
+}
+
 function authorizeOperatorAction(string $action, array $payload, ?array $user, AccessService $access, PDO $db): void
 {
     if (hasLegacyOperatorKey() && AccessService::allowsLegacyOperatorKey($action)) {
@@ -130,8 +143,11 @@ function authorizeOperatorAction(string $action, array $payload, ?array $user, A
             return;
 
         case 'roster':
-        case 'operations':
             $access->requireSeasonManager($user, (int)($_GET['season_id'] ?? 0));
+            return;
+
+        case 'operations':
+            $access->requireSeasonScorer($user, (int)($_GET['season_id'] ?? 0));
             return;
 
         case 'teams.build':
@@ -180,7 +196,7 @@ try {
         'schedule' => $service->seasonSchedule((int)($_GET['season_id'] ?? 0)),
         'standings' => $service->standings((int)($_GET['season_id'] ?? 0)),
         'roster' => $service->seasonRoster((int)($_GET['season_id'] ?? 0)),
-        'operations' => $service->seasonOperations((int)($_GET['season_id'] ?? 0)),
+        'operations' => seasonOperationsForActor($service, $accessService, (int)($_GET['season_id'] ?? 0), $currentUser),
 
         'auth.register' => $method === 'POST'
             ? (function () use ($authService, $payload): array {
