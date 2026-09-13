@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use FourBag\Database;
 use FourBag\LeagueService;
+use FourBag\RegistrationService;
 
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/LeagueService.php';
+require_once __DIR__ . '/../src/RegistrationService.php';
 
 function assertTrue(bool $condition, string $message): void
 {
@@ -18,6 +20,7 @@ function assertTrue(bool $condition, string $message): void
 
 $db = Database::connect();
 $service = new LeagueService($db);
+$registrationService = new RegistrationService($db);
 
 $venueId = $service->createVenue([
     'name' => 'FourBag Integration Bar',
@@ -36,10 +39,11 @@ $seasonId = $service->createSeason([
     'registration_fee_cents' => 5000,
 ]);
 
+$boardOrders = [];
 for ($i = 1; $i <= 32; $i++) {
     $joinType = $i <= 4 ? 'team' : ($i <= 8 ? 'friends' : 'solo');
     $group = $i <= 4 ? 'Integration Captains' : ($i <= 8 ? 'Patio Friends' : null);
-    $service->registerPlayer([
+    $result = $registrationService->register([
         'season_id' => $seasonId,
         'name' => "Player {$i}",
         'email' => "player{$i}@example.test",
@@ -47,13 +51,25 @@ for ($i = 1; $i <= 32; $i++) {
         'requested_group' => $group,
         'board_purchase' => $i % 4 === 0,
     ]);
+    if ($result['board_order_id']) {
+        $boardOrders[] = (int)$result['board_order_id'];
+        assertTrue($result['payment_status'] === 'awaiting_board_payment', 'Board intent must await payment before registration credit is granted.');
+    }
 }
 
 assertTrue(count($service->seasonRoster($seasonId)) === 32, 'Expected 32 registered players.');
-assertTrue((int)$db->query("SELECT COUNT(*) FROM orders WHERE season_id={$seasonId} AND order_type='fourbag_set'")->fetchColumn() === 8, 'Expected eight FourBag set orders.');
+assertTrue(count($boardOrders) === 8, 'Expected eight FourBag board orders.');
+assertTrue((int)$db->query("SELECT COUNT(*) FROM orders WHERE season_id={$seasonId} AND order_type='fourbag_set' AND status='pending'")->fetchColumn() === 8, 'Board orders should start pending.');
+assertTrue((int)$db->query("SELECT COUNT(*) FROM registrations WHERE season_id={$seasonId} AND payment_status='awaiting_board_payment'")->fetchColumn() === 8, 'Board registrations must remain uncredited until the board order is paid.');
 
-// Re-registering an existing board buyer must not create a duplicate set order.
-$service->registerPlayer([
+foreach ($boardOrders as $orderId) {
+    $paid = $registrationService->completeBoardOrder($orderId);
+    assertTrue($paid['registration_status'] === 'included_with_board', 'Paid board order must activate included league registration.');
+}
+assertTrue((int)$db->query("SELECT COUNT(*) FROM registrations WHERE season_id={$seasonId} AND payment_status='included_with_board'")->fetchColumn() === 8, 'Expected eight paid board registrations.');
+
+// Re-registering an existing paid board buyer must preserve the credit and avoid duplicate orders.
+$repeat = $registrationService->register([
     'season_id' => $seasonId,
     'name' => 'Player 4',
     'email' => 'player4@example.test',
@@ -61,11 +77,12 @@ $service->registerPlayer([
     'requested_group' => 'Integration Captains',
     'board_purchase' => true,
 ]);
+assertTrue($repeat['payment_status'] === 'included_with_board', 'Paid board registration credit must survive profile updates.');
 assertTrue((int)$db->query("SELECT COUNT(*) FROM orders WHERE season_id={$seasonId} AND order_type='fourbag_set'")->fetchColumn() === 8, 'Board-buyer updates must not duplicate FourBag orders.');
 
 $capacityRejected = false;
 try {
-    $service->registerPlayer([
+    $registrationService->register([
         'season_id' => $seasonId,
         'name' => 'Player 33',
         'email' => 'player33@example.test',
