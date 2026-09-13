@@ -46,7 +46,7 @@ foreach (['buildTeams', 'generateRoundRobin', 'standings', 'recordScore', 'creat
 }
 
 $registrationService = file_get_contents(__DIR__ . '/../src/RegistrationService.php') ?: '';
-foreach (['function register', 'function completeBoardOrder', 'awaiting_board_payment', 'included_with_board', 'cannot be converted'] as $needle) {
+foreach (['function register', 'function completeBoardOrder', 'awaiting_board_payment', 'included_with_board', 'cannot be converted', 'orderIsPaid'] as $needle) {
     if (!str_contains($registrationService, $needle)) {
         fwrite(STDERR, "RegistrationService contract missing {$needle}\n");
         exit(1);
@@ -59,6 +59,10 @@ foreach (['FOURBAG_OPERATOR_KEY', 'registerPublicPlayer', 'generateFullLeagueSch
         fwrite(STDERR, "API contract missing {$needle}\n");
         exit(1);
     }
+}
+if (str_contains($api, '->registerPlayer(')) {
+    fwrite(STDERR, "Public API must use RegistrationService, not the legacy LeagueService registration path.\n");
+    exit(1);
 }
 
 $index = file_get_contents(__DIR__ . '/../public/index.php') ?: '';
