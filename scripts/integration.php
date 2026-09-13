@@ -68,6 +68,11 @@ foreach ($boardOrders as $orderId) {
 }
 assertTrue((int)$db->query("SELECT COUNT(*) FROM registrations WHERE season_id={$seasonId} AND payment_status='included_with_board'")->fetchColumn() === 8, 'Expected eight paid board registrations.');
 
+// Completing the same already-paid board order again must be safe and idempotent.
+$idempotent = $registrationService->completeBoardOrder($boardOrders[0]);
+assertTrue($idempotent['registration_status'] === 'included_with_board', 'Repeated board-payment completion must remain included_with_board.');
+assertTrue((int)$db->query("SELECT COUNT(*) FROM orders WHERE season_id={$seasonId} AND order_type='fourbag_set'")->fetchColumn() === 8, 'Idempotent completion must not duplicate FourBag orders.');
+
 // Re-registering an existing paid board buyer must preserve the credit and avoid duplicate orders.
 $repeat = $registrationService->register([
     'season_id' => $seasonId,
@@ -79,6 +84,34 @@ $repeat = $registrationService->register([
 ]);
 assertTrue($repeat['payment_status'] === 'included_with_board', 'Paid board registration credit must survive profile updates.');
 assertTrue((int)$db->query("SELECT COUNT(*) FROM orders WHERE season_id={$seasonId} AND order_type='fourbag_set'")->fetchColumn() === 8, 'Board-buyer updates must not duplicate FourBag orders.');
+
+// A normally paid $50 registration must not be downgraded by a profile update.
+$playerOneId = (int)$db->query("SELECT id FROM players WHERE email='player1@example.test'")->fetchColumn();
+$db->prepare("UPDATE registrations SET payment_status='paid' WHERE season_id=:season_id AND player_id=:player_id")->execute(['season_id' => $seasonId, 'player_id' => $playerOneId]);
+$paidUpdate = $registrationService->register([
+    'season_id' => $seasonId,
+    'name' => 'Player One Updated',
+    'email' => 'player1@example.test',
+    'join_type' => 'solo',
+    'board_purchase' => false,
+]);
+assertTrue($paidUpdate['payment_status'] === 'paid', 'Paid registration status must survive profile updates.');
+assertTrue((int)$paidUpdate['registration_fee_cents'] === 5000, 'Paid registration must retain the $50 registration amount.');
+
+// A paid league registration cannot silently turn into a free board-linked registration.
+$conversionBlocked = false;
+try {
+    $registrationService->register([
+        'season_id' => $seasonId,
+        'name' => 'Player One Updated',
+        'email' => 'player1@example.test',
+        'join_type' => 'solo',
+        'board_purchase' => true,
+    ]);
+} catch (RuntimeException $e) {
+    $conversionBlocked = str_contains($e->getMessage(), 'cannot be converted');
+}
+assertTrue($conversionBlocked, 'Paid league registration must not be silently converted to board credit.');
 
 $capacityRejected = false;
 try {
