@@ -21,6 +21,8 @@ $required = [
     __DIR__ . '/../public/api.php',
     __DIR__ . '/../public/operator.php',
     __DIR__ . '/../public/admin.php',
+    __DIR__ . '/../public/billing.php',
+    __DIR__ . '/../public/host-fees.php',
     __DIR__ . '/../public/webhook-stripe.php',
     __DIR__ . '/../public/checkout-complete.php',
     __DIR__ . '/integration.php',
@@ -164,6 +166,22 @@ $admin = file_get_contents(__DIR__ . '/../public/admin.php') ?: '';
 foreach (['admin.venues', 'venue.members', 'venue.member.assign', 'venue.member.revoke', 'auth.login', 'auth.logout', 'credentials:\'same-origin\''] as $needle) {
     if (!str_contains($admin, $needle)) {
         fwrite(STDERR, "Network administration UI contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
+$billing = file_get_contents(__DIR__ . '/../public/billing.php') ?: '';
+foreach (['venue.invoices', 'invoice.checkout', 'Pay Securely', 'Host-fee billing', 'credentials:\'same-origin\''] as $needle) {
+    if (!str_contains($billing, $needle)) {
+        fwrite(STDERR, "Venue billing UI contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
+$hostFees = file_get_contents(__DIR__ . '/../public/host-fees.php') ?: '';
+foreach (['admin.host_fee.create', 'venue.invoices', 'Create Host-Fee Invoice', 'Administrator access required', 'credentials:\'same-origin\''] as $needle) {
+    if (!str_contains($hostFees, $needle)) {
+        fwrite(STDERR, "Host-fee administration UI contract missing {$needle}\n");
         exit(1);
     }
 }
