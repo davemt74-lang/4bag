@@ -91,7 +91,8 @@ $legacyLink = $players->linkFromRegistration($legacyUser, (int)$legacy['player_i
 playerAssert($legacyLink['linked'] === false && $legacyLink['reason'] === 'historical_verification_required', 'New account must not automatically claim older player history.');
 $legacyProfile = $players->profileForUser($legacyUser);
 playerAssert($legacyProfile['linked'] === false, 'Unverified legacy account must remain unlinked.');
-playerAssert($legacyProfile['legacy_history_available'] === true && $legacyProfile['legacy_registration_count'] === 1, 'Player account should disclose that legacy history awaits verification without exposing another profile.');
+playerAssert($legacyProfile['legacy_link_policy'] === 'admin_verification_required', 'Unlinked accounts should be told only the verification policy.');
+playerAssert(!array_key_exists('legacy_history_available', $legacyProfile) && !array_key_exists('legacy_registration_count', $legacyProfile), 'Normal accounts must not learn whether matching legacy history exists.');
 
 $unlinked = $players->unlinkedPlayers();
 $legacyRows = array_values(array_filter($unlinked, static fn(array $row): bool => (int)$row['player_id'] === (int)$legacy['player_id']));
