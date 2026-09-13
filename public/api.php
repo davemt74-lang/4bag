@@ -108,7 +108,7 @@ function seasonIdForMatch(PDO $db, int $matchId): int
 
 function authorizeOperatorAction(string $action, array $payload, ?array $user, AccessService $access, PDO $db): void
 {
-    if (hasLegacyOperatorKey()) {
+    if (hasLegacyOperatorKey() && AccessService::allowsLegacyOperatorKey($action)) {
         return;
     }
 
