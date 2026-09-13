@@ -64,6 +64,7 @@ final class RegistrationService
             $paymentStatus = 'pending';
             $creditOrderId = null;
             $orderId = null;
+            $checkoutToken = null;
 
             if ($existing) {
                 $priorStatus = (string)$existing['payment_status'];
@@ -92,13 +93,25 @@ final class RegistrationService
             if ($boardRequested) {
                 $order = $this->findBoardOrder($playerId, $seasonId);
                 if (!$order) {
-                    $createOrder = $this->db->prepare("INSERT INTO orders(player_id,season_id,order_type,subtotal_cents,status,created_at,updated_at) VALUES(:player_id,:season_id,'fourbag_set',19900,'pending',NOW(),NOW())");
-                    $createOrder->execute(['player_id' => $playerId, 'season_id' => $seasonId]);
+                    $checkoutToken = bin2hex(random_bytes(32));
+                    $createOrder = $this->db->prepare("INSERT INTO orders(player_id,season_id,order_type,subtotal_cents,currency,status,checkout_token_hash,created_at,updated_at) VALUES(:player_id,:season_id,'fourbag_set',19900,'USD','pending',:checkout_token_hash,NOW(),NOW())");
+                    $createOrder->execute([
+                        'player_id' => $playerId,
+                        'season_id' => $seasonId,
+                        'checkout_token_hash' => hash('sha256', $checkoutToken),
+                    ]);
                     $orderId = (int)$this->db->lastInsertId();
                     $orderStatus = 'pending';
                 } else {
                     $orderId = (int)$order['id'];
                     $orderStatus = (string)$order['status'];
+                    if ($orderStatus === 'pending') {
+                        $checkoutToken = bin2hex(random_bytes(32));
+                        $this->db->prepare('UPDATE orders SET checkout_token_hash=:checkout_token_hash,updated_at=NOW() WHERE id=:id')->execute([
+                            'checkout_token_hash' => hash('sha256', $checkoutToken),
+                            'id' => $orderId,
+                        ]);
+                    }
                 }
 
                 $orderIsPaid = in_array($orderStatus, ['paid', 'fulfilled'], true);
@@ -107,13 +120,14 @@ final class RegistrationService
                 $creditOrderId = $orderId;
                 $paymentStatus = $orderIsPaid ? 'included_with_board' : 'awaiting_board_payment';
             } elseif ($existing && $existing['payment_status'] === 'awaiting_board_payment' && $existing['registration_credit_order_id']) {
-                $cancel = $this->db->prepare("UPDATE orders SET status='cancelled',updated_at=NOW() WHERE id=:id AND status='pending'");
+                $cancel = $this->db->prepare("UPDATE orders SET status='cancelled',checkout_token_hash=NULL,updated_at=NOW() WHERE id=:id AND status='pending'");
                 $cancel->execute(['id' => (int)$existing['registration_credit_order_id']]);
                 $boardPurchase = 0;
                 $fee = (int)$season['registration_fee_cents'];
                 $paymentStatus = 'pending';
                 $creditOrderId = null;
                 $orderId = null;
+                $checkoutToken = null;
             }
 
             $registration = $this->db->prepare("INSERT INTO registrations(season_id,player_id,join_type,requested_group,board_purchase,registration_fee_cents,payment_status,registration_credit_order_id,created_at,updated_at) VALUES(:season_id,:player_id,:join_type,:requested_group,:board_purchase,:fee,:payment_status,:credit_order_id,NOW(),NOW()) ON DUPLICATE KEY UPDATE join_type=VALUES(join_type),requested_group=VALUES(requested_group),board_purchase=VALUES(board_purchase),registration_fee_cents=VALUES(registration_fee_cents),payment_status=VALUES(payment_status),registration_credit_order_id=VALUES(registration_credit_order_id),updated_at=NOW()");
@@ -136,9 +150,12 @@ final class RegistrationService
                 'registration_fee_cents' => $fee,
                 'board_order_id' => $orderId,
                 'board_order_amount_cents' => $orderId ? 19900 : null,
+                'checkout_token' => $checkoutToken,
             ];
         } catch (Throwable $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
@@ -178,7 +195,7 @@ final class RegistrationService
             }
 
             if ($order['status'] === 'pending') {
-                $this->db->prepare("UPDATE orders SET status='paid',updated_at=NOW() WHERE id=:id")->execute(['id' => $orderId]);
+                $this->db->prepare("UPDATE orders SET status='paid',checkout_token_hash=NULL,updated_at=NOW() WHERE id=:id")->execute(['id' => $orderId]);
                 $orderStatus = 'paid';
             } else {
                 $orderStatus = (string)$order['status'];
@@ -199,7 +216,9 @@ final class RegistrationService
                 'registration_status' => 'included_with_board',
             ];
         } catch (Throwable $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
