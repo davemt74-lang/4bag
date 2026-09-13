@@ -9,6 +9,7 @@ use FourBag\BillingService;
 use FourBag\Database;
 use FourBag\LeagueService;
 use FourBag\PaymentService;
+use FourBag\PlayerService;
 use FourBag\RegistrationService;
 use FourBag\StripePaymentProvider;
 
@@ -19,6 +20,7 @@ require_once __DIR__ . '/../src/AuthService.php';
 require_once __DIR__ . '/../src/AccessService.php';
 require_once __DIR__ . '/../src/AdminService.php';
 require_once __DIR__ . '/../src/BillingService.php';
+require_once __DIR__ . '/../src/PlayerService.php';
 require_once __DIR__ . '/../src/PaymentProviderInterface.php';
 require_once __DIR__ . '/../src/StripePaymentProvider.php';
 require_once __DIR__ . '/../src/PaymentService.php';
@@ -73,8 +75,21 @@ function clearAuthCookie(): void
     ]);
 }
 
-function registerPublicPlayer(RegistrationService $service, PDO $db, array $payload): array
+function requireAuthenticatedUser(?array $user): array
 {
+    if (!$user) {
+        throw new RuntimeException('Sign in to access your FourBag player account.');
+    }
+    return $user;
+}
+
+function registerPublicPlayer(
+    RegistrationService $service,
+    PlayerService $playerService,
+    PDO $db,
+    array $payload,
+    ?array $currentUser
+): array {
     $seasonId = (int)($payload['season_id'] ?? 0);
     $stmt = $db->prepare('SELECT status FROM league_seasons WHERE id=:id LIMIT 1');
     $stmt->execute(['id' => $seasonId]);
@@ -86,7 +101,30 @@ function registerPublicPlayer(RegistrationService $service, PDO $db, array $payl
         throw new RuntimeException('Public registration is closed for this league.');
     }
 
-    return $service->register($payload);
+    $registrationEmail = strtolower(trim((string)($payload['email'] ?? '')));
+    $priorPlayer = null;
+    if ($registrationEmail !== '') {
+        $priorStmt = $db->prepare('SELECT id,user_id FROM players WHERE email=:email LIMIT 1');
+        $priorStmt->execute(['email' => $registrationEmail]);
+        $priorPlayer = $priorStmt->fetch() ?: null;
+    }
+
+    $result = $service->register($payload);
+    if ($currentUser !== null
+        && $registrationEmail !== ''
+        && $registrationEmail === strtolower(trim((string)($currentUser['email'] ?? '')))
+    ) {
+        if ($priorPlayer === null) {
+            $result['profile_link'] = $playerService->linkFromRegistration($currentUser, (int)$result['player_id']);
+        } elseif ($priorPlayer['user_id'] !== null && (int)$priorPlayer['user_id'] === (int)($currentUser['id'] ?? 0)) {
+            $result['profile_link'] = ['linked' => true, 'reason' => 'already_linked'];
+        } elseif ($priorPlayer['user_id'] === null) {
+            $result['profile_link'] = ['linked' => false, 'reason' => 'historical_verification_required'];
+        } else {
+            $result['profile_link'] = ['linked' => false, 'reason' => 'linked_to_other_account'];
+        }
+    }
+    return $result;
 }
 
 function generateFullLeagueSchedule(LeagueService $service, PDO $db, int $seasonId): array
@@ -158,6 +196,8 @@ function authorizeOperatorAction(
         case 'venue.member.revoke':
         case 'admin.venues':
         case 'admin.host_fee.create':
+        case 'admin.players.unlinked':
+        case 'admin.player.link':
             $access->requireAdmin($user);
             return;
 
@@ -204,6 +244,7 @@ try {
     $accessService = new AccessService($db);
     $adminService = new AdminService($db);
     $billingService = new BillingService($db);
+    $playerService = new PlayerService($db);
     $paymentProvider = StripePaymentProvider::fromEnvironment();
     $paymentService = new PaymentService(
         $db,
@@ -227,6 +268,7 @@ try {
         'schedule.generate', 'score.record', 'championship.create', 'order.board_paid',
         'venue.members', 'venue.member.assign', 'venue.member.revoke', 'admin.venues',
         'admin.host_fee.create', 'venue.invoices', 'invoice.checkout',
+        'admin.players.unlinked', 'admin.player.link',
     ];
     if (in_array($action, $protectedActions, true)) {
         authorizeOperatorAction($action, $payload, $currentUser, $accessService, $billingService, $db);
@@ -270,7 +312,16 @@ try {
             : throw new RuntimeException('POST required.'),
         'auth.me' => ['user' => $currentUser],
 
+        'player.profile' => $playerService->profileForUser(requireAuthenticatedUser($currentUser)),
+
         'admin.venues' => $adminService->venues(),
+        'admin.players.unlinked' => $playerService->unlinkedPlayers(),
+        'admin.player.link' => $method === 'POST'
+            ? $playerService->adminLinkByEmail(
+                (string)($payload['player_email'] ?? ''),
+                (string)($payload['user_email'] ?? '')
+            )
+            : throw new RuntimeException('POST required.'),
         'admin.host_fee.create' => $method === 'POST'
             ? $billingService->createHostFeeInvoice(
                 (int)($payload['season_id'] ?? 0),
@@ -305,7 +356,7 @@ try {
             : throw new RuntimeException('POST required.'),
 
         'player.register' => $method === 'POST'
-            ? registerPublicPlayer($registrationService, $db, $payload)
+            ? registerPublicPlayer($registrationService, $playerService, $db, $payload, $currentUser)
             : throw new RuntimeException('POST required.'),
         'checkout.create' => $method === 'POST'
             ? $paymentService->createCheckout(

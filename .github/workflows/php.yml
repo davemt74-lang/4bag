@@ -46,6 +46,8 @@ jobs:
         run: php scripts/auth-integration.php
       - name: Payments and host-billing integration checks
         run: php scripts/payment-integration.php
+      - name: Player accounts and history integration checks
+        run: php scripts/player-integration.php
       - name: Build production deploy ZIP
         run: |
           rm -f fourbag-production.zip
