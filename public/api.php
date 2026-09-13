@@ -101,11 +101,28 @@ function registerPublicPlayer(
         throw new RuntimeException('Public registration is closed for this league.');
     }
 
+    $registrationEmail = strtolower(trim((string)($payload['email'] ?? '')));
+    $priorPlayer = null;
+    if ($registrationEmail !== '') {
+        $priorStmt = $db->prepare('SELECT id,user_id FROM players WHERE email=:email LIMIT 1');
+        $priorStmt->execute(['email' => $registrationEmail]);
+        $priorPlayer = $priorStmt->fetch() ?: null;
+    }
+
     $result = $service->register($payload);
     if ($currentUser !== null
-        && strtolower(trim((string)($payload['email'] ?? ''))) === strtolower(trim((string)($currentUser['email'] ?? '')))
+        && $registrationEmail !== ''
+        && $registrationEmail === strtolower(trim((string)($currentUser['email'] ?? '')))
     ) {
-        $result['profile_link'] = $playerService->linkFromRegistration($currentUser, (int)$result['player_id']);
+        if ($priorPlayer === null) {
+            $result['profile_link'] = $playerService->linkFromRegistration($currentUser, (int)$result['player_id']);
+        } elseif ($priorPlayer['user_id'] !== null && (int)$priorPlayer['user_id'] === (int)($currentUser['id'] ?? 0)) {
+            $result['profile_link'] = ['linked' => true, 'reason' => 'already_linked'];
+        } elseif ($priorPlayer['user_id'] === null) {
+            $result['profile_link'] = ['linked' => false, 'reason' => 'historical_verification_required'];
+        } else {
+            $result['profile_link'] = ['linked' => false, 'reason' => 'linked_to_other_account'];
+        }
     }
     return $result;
 }
