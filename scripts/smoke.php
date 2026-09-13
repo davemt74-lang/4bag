@@ -183,11 +183,15 @@ foreach (['admin.venues', 'venue.members', 'venue.member.assign', 'venue.member.
 }
 
 $player = file_get_contents(__DIR__ . '/../public/player.php') ?: '';
-foreach (['player.profile', 'Create Player Account', 'League History', 'Upcoming Matches', 'legacy_history_available', 'admin'] as $needle) {
+foreach (['player.profile', 'Create Player Account', 'League History', 'Upcoming Matches', 'identity verification', 'credentials:\'same-origin\''] as $needle) {
     if (!str_contains($player, $needle)) {
         fwrite(STDERR, "Player account UI contract missing {$needle}\n");
         exit(1);
     }
+}
+if (str_contains($player, 'legacy_history_available') || str_contains($player, 'legacy_registration_count')) {
+    fwrite(STDERR, "Player account UI must not enumerate unlinked legacy history.\n");
+    exit(1);
 }
 
 $playerAdmin = file_get_contents(__DIR__ . '/../public/player-admin.php') ?: '';
