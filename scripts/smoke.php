@@ -30,7 +30,7 @@ foreach (['venues','league_seasons','players','registrations','teams','matches',
 }
 
 $opsSql = file_get_contents(__DIR__ . '/../database/migrations/002_league_operations.sql');
-foreach (['board_count', 'stage', 'sequence_no', 'match_score_events', 'awaiting_board_payment', 'registration_credit_order_id'] as $needle) {
+foreach (['board_count', 'stage', 'sequence_no', 'idx_match_slot', 'match_score_events', 'awaiting_board_payment', 'registration_credit_order_id'] as $needle) {
     if ($opsSql === false || !str_contains($opsSql, $needle)) {
         fwrite(STDERR, "Operations migration missing {$needle}\n");
         exit(1);
@@ -46,7 +46,7 @@ foreach (['buildTeams', 'generateRoundRobin', 'standings', 'recordScore', 'creat
 }
 
 $registrationService = file_get_contents(__DIR__ . '/../src/RegistrationService.php') ?: '';
-foreach (['function register', 'function completeBoardOrder', 'awaiting_board_payment', 'included_with_board'] as $needle) {
+foreach (['function register', 'function completeBoardOrder', 'awaiting_board_payment', 'included_with_board', 'cannot be converted'] as $needle) {
     if (!str_contains($registrationService, $needle)) {
         fwrite(STDERR, "RegistrationService contract missing {$needle}\n");
         exit(1);
@@ -54,9 +54,17 @@ foreach (['function register', 'function completeBoardOrder', 'awaiting_board_pa
 }
 
 $api = file_get_contents(__DIR__ . '/../public/api.php') ?: '';
-foreach (['FOURBAG_OPERATOR_KEY', 'teams.build', 'schedule.generate', 'score.record', 'championship.create', 'order.board_paid'] as $needle) {
+foreach (['FOURBAG_OPERATOR_KEY', 'registerPublicPlayer', 'generateFullLeagueSchedule', 'registration is closed', 'full league field', 'teams.build', 'schedule.generate', 'score.record', 'championship.create', 'order.board_paid'] as $needle) {
     if (!str_contains($api, $needle)) {
         fwrite(STDERR, "API contract missing {$needle}\n");
+        exit(1);
+    }
+}
+
+$index = file_get_contents(__DIR__ . '/../public/index.php') ?: '';
+foreach (['escapeHtml', 'awaiting_board_payment', 'registration becomes included after the board order is paid'] as $needle) {
+    if (!str_contains($index, $needle)) {
+        fwrite(STDERR, "Public registration UI contract missing {$needle}\n");
         exit(1);
     }
 }
