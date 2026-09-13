@@ -9,7 +9,24 @@ use RuntimeException;
 
 final class AccessService
 {
+    private const LEGACY_OPERATOR_ACTIONS = [
+        'roster',
+        'operations',
+        'venue.create',
+        'season.create',
+        'teams.build',
+        'schedule.generate',
+        'score.record',
+        'championship.create',
+        'order.board_paid',
+    ];
+
     public function __construct(private PDO $db) {}
+
+    public static function allowsLegacyOperatorKey(string $action): bool
+    {
+        return in_array($action, self::LEGACY_OPERATOR_ACTIONS, true);
+    }
 
     public function assignVenueRole(int $venueId, int $userId, string $role): array
     {
