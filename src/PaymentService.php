@@ -46,6 +46,28 @@ final class PaymentService
             }
         }
 
+        // Reuse an existing hosted session instead of creating multiple payable sessions
+        // for the same FourBag order. Expired sessions are marked cancelled by the webhook
+        // and therefore fall through to a new session on the next checkout request.
+        $existing = $this->db->prepare("SELECT id,provider_session_id,checkout_url FROM payment_attempts WHERE order_id=:order_id AND provider=:provider AND status='pending' AND checkout_url IS NOT NULL ORDER BY id DESC LIMIT 1");
+        $existing->execute([
+            'order_id' => $orderId,
+            'provider' => $this->provider->name(),
+        ]);
+        $existingAttempt = $existing->fetch();
+        if ($existingAttempt) {
+            return [
+                'attempt_id' => (int)$existingAttempt['id'],
+                'order_id' => $orderId,
+                'provider' => $this->provider->name(),
+                'provider_session_id' => (string)$existingAttempt['provider_session_id'],
+                'checkout_url' => (string)$existingAttempt['checkout_url'],
+                'amount_cents' => (int)$order['subtotal_cents'],
+                'currency' => strtoupper((string)$order['currency']),
+                'reused' => true,
+            ];
+        }
+
         $idempotencyKey = bin2hex(random_bytes(32));
         $attempt = $this->db->prepare("INSERT INTO payment_attempts(order_id,provider,idempotency_key,amount_cents,currency,status,created_at,updated_at) VALUES(:order_id,:provider,:idempotency_key,:amount_cents,:currency,'created',NOW(),NOW())");
         $attempt->execute([
@@ -83,6 +105,7 @@ final class PaymentService
                 'checkout_url' => (string)$checkout['checkout_url'],
                 'amount_cents' => (int)$order['subtotal_cents'],
                 'currency' => strtoupper((string)$order['currency']),
+                'reused' => false,
             ];
         } catch (Throwable $e) {
             $this->db->prepare("UPDATE payment_attempts SET status='failed',failure_message=:message,updated_at=NOW() WHERE id=:id")->execute([
@@ -168,6 +191,10 @@ final class PaymentService
 
             $this->db->prepare("UPDATE orders SET status='paid',checkout_token_hash=NULL,updated_at=NOW() WHERE id=:id AND status='pending'")->execute(['id' => $orderId]);
             $this->db->prepare("UPDATE payment_attempts SET status='paid',paid_at=COALESCE(paid_at,NOW()),updated_at=NOW() WHERE id=:id")->execute(['id' => (int)$attempt['id']]);
+            $this->db->prepare("UPDATE payment_attempts SET status='cancelled',updated_at=NOW() WHERE order_id=:order_id AND id<>:paid_attempt_id AND status IN('created','pending')")->execute([
+                'order_id' => $orderId,
+                'paid_attempt_id' => (int)$attempt['id'],
+            ]);
             $this->db->prepare("UPDATE venue_invoices SET status='paid',paid_at=COALESCE(paid_at,NOW()),updated_at=NOW() WHERE order_id=:order_id AND status='open'")->execute(['order_id' => $orderId]);
             $this->db->commit();
         } catch (Throwable $e) {
